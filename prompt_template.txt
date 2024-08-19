@@ -1,0 +1,16 @@
+Here is the summary of the table:
+[SUMMARY]
+
+Here is the data for the current row:
+[ROW]
+
+The column name in question is:
+[COLUMN NAME]
+
+The entity mention is:
+[ENTITY MENTION]
+
+Possible candidates for the entity are:
+[CANDIDATES]
+
+Please provide only the QID. If no correct candidate is present, provide NIL.
