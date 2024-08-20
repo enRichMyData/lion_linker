@@ -31,7 +31,7 @@ class LionLinker:
 
     def generate_table_summary(self, prompt=None):
         if prompt is None:
-            prompt = "Provide a high-level summary of the table without getting into specific details."
+            prompt = "Provide a high-level summary of the table without getting into specific details. reply only with the summary nothing else."
 
         # Initialize an empty DataFrame
         df = pd.DataFrame()
@@ -45,7 +45,7 @@ class LionLinker:
         sample = df.sample(5)
         
         # Prepare the summary with the prompt and sample data
-        prompt += "\n\nHere is a sample of the table data:\n"
+        prompt += "\nHere is a sample of the table data:\n"
         prompt += sample.to_string(index=False)
         
         return self.llm_interaction.chat(prompt)
