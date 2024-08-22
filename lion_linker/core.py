@@ -3,6 +3,7 @@ import json
 import ollama
 import aiohttp
 import asyncio
+import copy
 
 class APIClient:
     def __init__(self, url, token=None, parse_response_func=None):
@@ -33,6 +34,7 @@ class PromptGenerator:
             self.template = file.read()
 
     def generate_prompt(self, table_summary, row, column_name, entity_mention, candidates):
+        template = copy.deepcopy(self.template)
         # Optimize candidates list by reducing the verbosity of the JSON representation
         optimized_candidates = []
         for candidate in candidates:
@@ -59,9 +61,9 @@ class PromptGenerator:
 
         # Replace each placeholder using the dictionary
         for placeholder, value in replacements.items():
-            self.template = self.template.replace(placeholder, value)
+            template = template.replace(placeholder, value)
         
-        return self.template
+        return template
 
 class LLMInteraction:
     def __init__(self, model_name):
