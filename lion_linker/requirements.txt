@@ -7,5 +7,4 @@ asyncio
 copy
 tqdm
 openai
-python-dotenv
 groq

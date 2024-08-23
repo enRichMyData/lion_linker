@@ -5,7 +5,6 @@ import aiohttp
 import asyncio
 import copy
 import os
-from dotenv import load_dotenv
 import openai 
 from groq import Groq
 
@@ -77,7 +76,6 @@ class LLMInteraction:
         self.model_api_key = model_api_key
 
     def chat(self, message, stream=True):
-        #load_dotenv()  # Load variables from .env
         if self.model_api_provider == 'ollama':
             return self._chat_ollama(message, stream)
         elif self.model_api_provider == 'openai':
