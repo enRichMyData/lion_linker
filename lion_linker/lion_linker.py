@@ -5,11 +5,12 @@ import logging
 import asyncio
 from tqdm import tqdm
 
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class LionLinker:
-    def __init__(self, input_csv, prompt_file, model_name, api_url, api_token, output_csv, batch_size=1000, mention_columns=None):
+    def __init__(self, input_csv, prompt_file, model_name, api_url, api_token, output_csv, batch_size=1000, mention_columns=None, model_api_provider='ollama', model_api_key=None):
         self.input_csv = input_csv
         self.prompt_file = prompt_file
         self.model_name = model_name
@@ -18,12 +19,15 @@ class LionLinker:
         self.output_csv = output_csv
         self.batch_size = batch_size
         self.mention_columns = mention_columns or []  # List of columns containing entity mentions
+        self.model_api_provider = model_api_provider
+        self.model_api_key = model_api_key
 
         logging.info('Initializing components...')
         # Initialize components
         self.api_client = APIClient(self.api_url, token=self.api_token, parse_response_func=parse_response)
         self.prompt_generator = PromptGenerator(self.prompt_file)
-        self.llm_interaction = LLMInteraction(self.model_name)
+        logging.info(f'Model API provider is: {self.model_api_provider}')
+        self.llm_interaction = LLMInteraction(self.model_name, self.model_api_provider, self.model_api_key)
         
         # Initialize the output CSV with headers
         pd.DataFrame(columns=['Identifier', 'LLM Answer', 'Extracted Identifier']).to_csv(self.output_csv, index=False)
