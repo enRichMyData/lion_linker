@@ -41,7 +41,7 @@ class PromptGenerator:
             optimized_candidate = {
                 "id": candidate["id"],
                 "name": candidate["name"],
-                "description": candidate["description"].split('.')[0],  # Only keep the first sentence
+                "description": candidate["description"],  
                 "types": [{"id": t["id"], "name": t["name"]} for t in candidate["types"]]
             }
             optimized_candidates.append(optimized_candidate)

@@ -1,7 +1,3 @@
-import pandas as pd
-
-def clean_data(df):
-    return df.dropna()
 
 def process_in_batches(df, batch_size, process_function):
     num_batches = (len(df) + batch_size - 1) // batch_size
