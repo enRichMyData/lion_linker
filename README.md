@@ -1,5 +1,5 @@
-Here’s the text to include in your `README.md` file:
 # lion_linker
+Python library that uses LLMs to perform entity linking over tabular data
 
 <img src="logo.webp" alt="lion_linker Logo" width="200"/>
 
