@@ -1,7 +1,7 @@
 import os
 import pandas as pd
-from lion_linker.core import APIClient, PromptGenerator, LLMInteraction
-from lion_linker.utils import parse_response
+from core import APIClient, PromptGenerator, LLMInteraction
+from utils import parse_response
 import logging
 from tqdm.asyncio import tqdm
 
