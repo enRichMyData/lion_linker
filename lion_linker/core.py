@@ -61,7 +61,7 @@ class PromptGenerator:
 
         # Replace each placeholder using the dictionary
         for placeholder, value in replacements.items():
-            template = template.replace(placeholder, value)
+            template = template.replace(placeholder, str(value))
         
         return template
 
