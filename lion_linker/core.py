@@ -6,15 +6,16 @@ import copy
 
 
 class APIClient:
-    def __init__(self, url, token=None, parse_response_func=None, max_retries=3, backoff_factor=0.5):
+    def __init__(self, url, token=None, parse_response_func=None, max_retries=3, backoff_factor=0.5, limit=10):
         self.url = url
         self.token = token
         self.parse_response_func = parse_response_func
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
+        self.limit = limit
 
     async def fetch_entities(self, query, session):
-        params = {'name': query, 'limit': 10}
+        params = {'name': query, 'limit': self.limit}
         if self.token:
             params['token'] = self.token
 

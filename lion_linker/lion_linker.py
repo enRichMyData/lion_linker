@@ -9,19 +9,20 @@ from tqdm.asyncio import tqdm
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class LionLinker:
-    def __init__(self, input_csv, prompt_file, model_name, api_url, api_token, output_csv, batch_size=1000, mention_columns=None):
+    def __init__(self, input_csv, prompt_file, model_name, api_url, api_token, output_csv, batch_size=1000, mention_columns=None, api_limit=10):
         self.input_csv = input_csv
         self.prompt_file = prompt_file
         self.model_name = model_name
         self.api_url = api_url
         self.api_token = api_token
+        self.api_limit = api_limit
         self.output_csv = output_csv
         self.batch_size = batch_size
         self.mention_columns = mention_columns or []  # List of columns containing entity mentions
 
         logging.info('Initializing components...')
         # Initialize components
-        self.api_client = APIClient(self.api_url, token=self.api_token, parse_response_func=parse_response)
+        self.api_client = APIClient(self.api_url, token=self.api_token, limit=self.api_limit, parse_response_func=parse_response)
         self.prompt_generator = PromptGenerator(self.prompt_file)
         self.llm_interaction = LLMInteraction(self.model_name)
         
