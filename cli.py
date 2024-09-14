@@ -16,6 +16,7 @@ async def main():
     parser.add_argument('--model', required=True, help='LLM model name.')
     parser.add_argument('--batch-size', type=int, default=100, help='Batch size for processing.')
     parser.add_argument('--mention_columns', nargs='*', help='List of columns containing entity mentions.')
+    parser.add_argument('--api-limit', type=int, default=20, help='Limit for API calls per batch.')
 
     args = parser.parse_args()
 
@@ -28,7 +29,8 @@ async def main():
         api_token=args.api_token,
         output_csv=args.output_csv,
         batch_size=args.batch_size,
-        mention_columns=args.mention_columns
+        mention_columns=args.mention_columns,
+        api_limit=args.api_limit  # Added api_limit parameter
     )
 
     # Run the processing
