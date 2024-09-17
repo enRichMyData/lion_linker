@@ -22,14 +22,16 @@ To use **lion_linker**, you will need to install both the Python package and **O
 
 ### Step 1: Install **lion_linker** via pip
 
+You can install the latest version directly from the GitHub repository using the following command:
+
 ```bash
-pip install lion_linker
+pip install git+https://github.com/enRichMyData/lion_linker.git
 ```
 
-Alternatively, install from source:
+Alternatively, clone the repository and install from source:
 
 ```bash
-git clone https://github.com/your-repo/lion_linker.git
+git clone https://github.com/enRichMyData/lion_linker.git
 cd lion_linker
 pip install -e .
 ```

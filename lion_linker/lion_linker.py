@@ -10,7 +10,17 @@ from tqdm.asyncio import tqdm
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class LionLinker:
-    def __init__(self, input_csv, prompt_file, model_name, api_url, api_token, output_csv, batch_size=1000, mention_columns=None, api_limit=10):
+    def __init__(self, 
+                 input_csv, 
+                 prompt_file, 
+                 model_name, 
+                 api_url, 
+                 api_token, 
+                 output_csv, 
+                 batch_size=1000, 
+                 mention_columns=None, 
+                 api_limit=10,
+                 compact_candidates=True):
         self.input_csv = input_csv
         self.prompt_file = prompt_file
         self.model_name = model_name
@@ -20,6 +30,7 @@ class LionLinker:
         self.output_csv = output_csv
         self.batch_size = batch_size
         self.mention_columns = mention_columns or []  # List of columns containing entity mentions
+        self.compact_candidates = compact_candidates
 
         logging.info('Initializing components...')
         # Initialize components
@@ -67,7 +78,8 @@ class LionLinker:
                     row_str,
                     column,
                     entity_mention,
-                    candidates
+                    candidates,
+                    compact=self.compact_candidates
                 )
                 id_col = column_to_index[column]
                 

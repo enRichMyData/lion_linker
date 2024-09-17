@@ -65,7 +65,7 @@ class PromptGenerator:
         with open(prompt_file, 'r') as file:
             self.template = file.read()
 
-    def generate_prompt(self, table_summary, row, column_name, entity_mention, candidates):
+    def generate_prompt(self, table_summary, row, column_name, entity_mention, candidates, compact=True):
         template = copy.deepcopy(self.template)
         # Optimize candidates list by reducing the verbosity of the JSON representation
         optimized_candidates = []
@@ -78,9 +78,13 @@ class PromptGenerator:
             }
             optimized_candidates.append(optimized_candidate)
         
-        # Convert optimized candidates list to a compact JSON string
-        candidates_text = json.dumps(optimized_candidates, separators=(',', ':'))
-
+        if compact:
+            # Convert optimized candidates list to a compact JSON string
+            candidates_text = json.dumps(optimized_candidates, separators=(',', ':'))
+        else:
+            # Convert optimized candidates list to a pretty-printed JSON string
+            candidates_text = json.dumps(optimized_candidates, indent=2)
+        
         # Replace placeholders in the template with actual values
         # Define a dictionary with placeholders as keys and corresponding values
         replacements = {
