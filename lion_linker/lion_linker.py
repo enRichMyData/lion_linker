@@ -1,4 +1,5 @@
 import os
+import re
 import pandas as pd
 from lion_linker.core import APIClient, PromptGenerator, LLMInteraction
 from lion_linker.utils import parse_response
@@ -91,9 +92,38 @@ class LionLinker:
         return results
 
     def extract_identifier_from_response(self, response):
-        # Implement your logic to extract an identifier from the LLM response
-        # This is a placeholder function; replace with actual extraction logic
-        return response.split()[0]  # Example extraction logic
+        """
+        Extracts the last QID from the response, or 'NIL' if NIL appears after the last QID.
+        Returns 'No Identifier' if neither QID nor NIL is present.
+        
+        Parameters:
+        response (str): The response text to extract from.
+        
+        Returns:
+        str: The last QID, 'NIL' if 'NIL' appears after the last QID, or 'No Identifier' if neither is found.
+        """
+        # Find all QIDs in the response (assuming QIDs start with 'Q' followed by digits)
+        qids = re.findall(r'Q\d+', response)
+        
+        # Check if 'NIL' appears in the response
+        nil_position = response.rfind('NIL')
+        
+        # If there are no QIDs and no NIL, return 'No Identifier'
+        if not qids and nil_position == -1:
+            return 'No Identifier'
+        
+        # If there are no QIDs but NIL is present, return 'NIL'
+        if not qids:
+            return 'NIL'
+        
+        # Find the position of the last QID in the response
+        last_qid_position = response.rfind(qids[-1])
+        
+        # Return 'NIL' if it appears after the last QID, otherwise return the last QID
+        if nil_position > last_qid_position:
+            return 'NIL'
+        
+        return qids[-1]
 
     async def estimate_total_rows(self):
         # Get the size of the file in bytes
