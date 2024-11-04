@@ -1,0 +1,10 @@
+pandas
+requests
+json
+ollama
+aiohttp
+asyncio
+copy
+tqdm
+openai
+groq

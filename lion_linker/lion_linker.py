@@ -6,6 +6,7 @@ from lion_linker.utils import parse_response
 import logging
 from tqdm.asyncio import tqdm
 
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -36,7 +37,8 @@ class LionLinker:
         # Initialize components
         self.api_client = APIClient(self.api_url, token=self.api_token, limit=self.api_limit, parse_response_func=parse_response)
         self.prompt_generator = PromptGenerator(self.prompt_file)
-        self.llm_interaction = LLMInteraction(self.model_name)
+        logging.info(f'Model API provider is: {self.model_api_provider}')
+        self.llm_interaction = LLMInteraction(self.model_name, self.model_api_provider, self.model_api_key)
         
         # Initialize the output CSV with headers
         pd.DataFrame(columns=['Identifier', 'LLM Answer', 'Extracted Identifier']).to_csv(self.output_csv, index=False)
