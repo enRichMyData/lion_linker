@@ -2,7 +2,7 @@
 
 **lion_linker** is a Python library that uses Large Language Models (LLMs) to perform entity linking over tabular data. It efficiently links entity mentions in tables to relevant knowledge graph entities using customizable prompts and batch processing.
 
-<img src="new_logo.webp" alt="lion_linker Logo" width="200"/>
+<img src="logo/logo.webp" alt="lion_linker Logo" width="200"/>
 
 ## Overview
 
