@@ -113,7 +113,7 @@ python3 cli.py tests/data/film.csv output_test.csv \
 You can run the tests with:
 
 ```bash
-pytest tests/
+python -m unittest discover -s tests
 ```
 
 This will execute all unit tests in the `tests/` directory.
