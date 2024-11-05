@@ -21,7 +21,10 @@ class LionLinker:
                  batch_size=1000, 
                  mention_columns=None, 
                  api_limit=10,
-                 compact_candidates=True):
+                 compact_candidates=True,
+                 model_api_provider='ollama', 
+                 model_api_key=None,
+                 gt_columns=None):
         self.input_csv = input_csv
         self.prompt_file = prompt_file
         self.model_name = model_name
@@ -32,6 +35,9 @@ class LionLinker:
         self.batch_size = batch_size
         self.mention_columns = mention_columns or []  # List of columns containing entity mentions
         self.compact_candidates = compact_candidates
+        self.model_api_provider = model_api_provider
+        self.model_api_key = model_api_key
+        self.gt_columns = gt_columns or []  # Columns to exclude from processing
 
         logging.info('Initializing components...')
         # Initialize components
@@ -47,6 +53,9 @@ class LionLinker:
         self.table_summary = None  # Placeholder for the table summary
 
     def generate_table_summary(self, sample_data):
+        # Exclude GT columns for testing
+        sample_data = sample_data.drop(columns=self.gt_columns, errors='ignore')
+
         prompt = "Provide a high-level summary of the table without getting into specific details. reply only with the summary nothing else."
         
         # Prepare the summary with the prompt and sample data
@@ -56,6 +65,9 @@ class LionLinker:
         return self.llm_interaction.chat(prompt)
 
     async def process_chunk(self, chunk):
+        # Exclude GT columns from the chunk
+        chunk = chunk.drop(columns=self.gt_columns, errors='ignore')
+
         # Check if mention_columns are present in the chunk
         missing_columns = [col for col in self.mention_columns if col not in chunk.columns]
         if missing_columns:

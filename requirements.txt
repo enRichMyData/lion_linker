@@ -8,3 +8,4 @@ copy
 tqdm
 openai
 groq
+python-dotenv
