@@ -17,7 +17,8 @@ class LionLinker:
                  model_name, 
                  api_url, 
                  api_token, 
-                 output_csv, 
+                 output_csv,
+                 kg="wikidata",  
                  batch_size=1000, 
                  mention_columns=None, 
                  api_limit=10,
@@ -32,6 +33,7 @@ class LionLinker:
         self.api_token = api_token
         self.api_limit = api_limit
         self.output_csv = output_csv
+        self.kg = kg
         self.batch_size = batch_size
         self.mention_columns = mention_columns or []  # List of columns containing entity mentions
         self.compact_candidates = compact_candidates
@@ -41,7 +43,7 @@ class LionLinker:
 
         logging.info('Initializing components...')
         # Initialize components
-        self.api_client = APIClient(self.api_url, token=self.api_token, limit=self.api_limit, parse_response_func=parse_response)
+        self.api_client = APIClient(self.api_url, token=self.api_token, kg=self.kg, limit=self.api_limit, parse_response_func=parse_response)
         self.prompt_generator = PromptGenerator(self.prompt_file)
         logging.info(f'Model API provider is: {self.model_api_provider}')
         self.llm_interaction = LLMInteraction(self.model_name, self.model_api_provider, self.model_api_key)

@@ -13,4 +13,4 @@ The entity mention is:
 Possible candidates for the entity are:
 [CANDIDATES]
 
-Identify the correct QID for the entity mention from the candidates listed above. Provide only the QID or NIL if none of the candidates is correct. No additional text is required.
+Identify the correct identifier (id) for the entity mention from the candidates listed above. Provide only the id or NIL if none of the candidates is correct. No additional text is required.
