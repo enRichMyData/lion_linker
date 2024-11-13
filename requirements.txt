@@ -1,11 +1,9 @@
-pandas
-requests
-json
-ollama
-aiohttp
-asyncio
-copy
-tqdm
-openai
-groq
-python-dotenv
+pandas== 2.2.3
+requests==2.32.3
+ollama==0.3.3
+aiohttp==3.10.10
+asyncio==3.4.3
+tqdm==4.67.0
+openai==1.54.4
+groq==0.12.0
+python-dotenv==1.0.1
