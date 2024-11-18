@@ -13,4 +13,11 @@ The entity mention is:
 Possible candidates for the entity are:
 [CANDIDATES]
 
-Identify the correct identifier (id) for the entity mention from the candidates listed above. Provide only the id or NIL if none of the candidates is correct. No additional text is required.
+Identify the correct id (the entire value under the field id) for the entity mention from the candidates listed above. 
+Additionally, specify the confidence level for your choice as one of the following: low, medium, high.
+
+Your response must be in the following format:
+id: <ID>, confidence: <low/medium/high>
+
+If none of the candidates is correct, respond with:
+id: NIL, confidence: lowkno
