@@ -1,6 +1,4 @@
 import asyncio
-import copy
-import json
 
 import aiohttp
 import ollama
@@ -76,50 +74,6 @@ class APIClient:
                 else:
                     output[query] = result
             return output
-
-
-class PromptGenerator:
-    def __init__(self, prompt_file):
-        with open(prompt_file, "r") as file:
-            self.template = file.read()
-
-    def generate_prompt(
-        self, table_summary, row, column_name, entity_mention, candidates, compact=True
-    ):
-        template = copy.deepcopy(self.template)
-        # Optimize candidates list by reducing the verbosity of the JSON representation
-        optimized_candidates = []
-        for candidate in candidates:
-            optimized_candidate = {
-                "id": candidate["id"],
-                "name": candidate["name"],
-                "description": candidate["description"],
-                "types": [{"id": t["id"], "name": t["name"]} for t in candidate["types"]],
-            }
-            optimized_candidates.append(optimized_candidate)
-
-        if compact:
-            # Convert optimized candidates list to a compact JSON string
-            candidates_text = json.dumps(optimized_candidates, separators=(",", ":"))
-        else:
-            # Convert optimized candidates list to a pretty-printed JSON string
-            candidates_text = json.dumps(optimized_candidates, indent=2)
-
-        # Replace placeholders in the template with actual values
-        # Define a dictionary with placeholders as keys and corresponding values
-        replacements = {
-            "[SUMMARY]": table_summary.strip(),
-            "[ROW]": row,
-            "[COLUMN NAME]": column_name,
-            "[ENTITY MENTION]": entity_mention,
-            "[CANDIDATES]": candidates_text,
-        }
-
-        # Replace each placeholder using the dictionary
-        for placeholder, value in replacements.items():
-            template = template.replace(placeholder, str(value))
-
-        return template
 
 
 class LLMInteraction:
