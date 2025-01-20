@@ -1,0 +1,48 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-added-large-files
+-   repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+    -   id: black
+        name: (black) Format Python code
+        args: [--config=pyproject.toml]
+        language: python
+        types: [python]
+-   repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: 'v0.7.4'
+    hooks:
+        - id: ruff
+          args: [--fix, --exit-non-zero-on-fix]
+-   repo: https://github.com/PyCQA/autoflake
+    rev: v2.3.1
+    hooks:
+        -   id: autoflake
+            name: Remove unused variables and imports
+            language: python
+            entry: autoflake
+            types: [python]
+            args:
+                [
+                "--in-place",
+                "--remove-all-unused-imports",
+                "--remove-unused-variables",
+                "--expand-star-imports",
+                "--ignore-init-module-imports",
+                ]
+            files: \.py$
+-   repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+        -   id: isort
+            name: (isort) Sorting import statements
+            args: [--settings-path=pyproject.toml]
+            language: python
+            types: [python]
+            files: \.py$
