@@ -49,7 +49,7 @@ ollama serve
 
 This ensures that the LLM models can be accessed by **lion_linker** during the entity linking process.
 
-### Step 3: 
+### Step 3:
 lion_linker requires certain environment variables to be set, such as the API_URL and API_TOKEN for the entity retrieval API. To make this process easier, a .env.template file is provided in the repository.
 
 1.	Create a .env file by copying .env.template:
