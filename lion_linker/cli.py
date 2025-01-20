@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import os
+import traceback
 
 from dotenv import load_dotenv
 
@@ -70,6 +71,7 @@ async def main():
         await lion_linker.run()
     except Exception as e:
         logging.error(f"An error occurred: {e}")
+        logging.error(traceback.format_exc())
 
 
 if __name__ == "__main__":
