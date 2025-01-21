@@ -31,6 +31,7 @@ class LionLinker:
         model_api_key=None,
         gt_columns=None,
         table_ctx_size: int = 1,
+        format_candidates=True,
     ):
         self.input_csv = input_csv
         self.prompt_file = prompt_file
@@ -47,9 +48,10 @@ class LionLinker:
         self.model_api_key = model_api_key
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
         self.table_ctx_size = table_ctx_size
-        if self.table_ctx_size < 1:
+        self.format_candidates = format_candidates
+        if self.table_ctx_size < 0:
             raise ValueError(
-                "Table context size must be at least 1. "
+                "Table context size must be at least 0. "
                 f"Got table context size: {self.table_ctx_size}"
             )
         if self.batch_size < 1:
@@ -132,9 +134,8 @@ class LionLinker:
                     entity_mention=entity_mention,
                     candidates=candidates,
                     compact=self.compact_candidates,
-                    format_candidates=True,
+                    format_candidates=self.format_candidates,
                 )
-                print(prompt)
                 id_col = column_to_index[column]
 
                 # Remove the file extension from the input_csv to use in the identifier
