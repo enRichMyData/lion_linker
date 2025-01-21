@@ -49,7 +49,7 @@ class PromptGenerator:
             optimized_candidates.append(optimized_candidate)
 
         if format_candidates:
-            candidates_text = ", ".join(
+            candidates_text = ",".join(
                 [
                     f"<id: {candidate['id']}; "
                     f"name: {candidate['name']}; "
