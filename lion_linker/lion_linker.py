@@ -5,7 +5,8 @@ import re
 import pandas as pd
 from tqdm.asyncio import tqdm
 
-from lion_linker.core import APIClient, LLMInteraction, PromptGenerator
+from lion_linker.core import APIClient, LLMInteraction
+from lion_linker.prompt.generator import PromptGenerator
 from lion_linker.utils import parse_response
 
 # Setup logging
@@ -29,6 +30,8 @@ class LionLinker:
         model_api_provider="ollama",
         model_api_key=None,
         gt_columns=None,
+        table_ctx_size: int = 1,
+        format_candidates=True,
     ):
         self.input_csv = input_csv
         self.prompt_file = prompt_file
@@ -44,6 +47,20 @@ class LionLinker:
         self.model_api_provider = model_api_provider
         self.model_api_key = model_api_key
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
+        self.table_ctx_size = table_ctx_size
+        self.format_candidates = format_candidates
+        if self.table_ctx_size < 0:
+            raise ValueError(
+                "Table context size must be at least 0. "
+                f"Got table context size: {self.table_ctx_size}"
+            )
+        if self.batch_size < 1:
+            raise ValueError(f"Batch size must be at least 1. Got batch size: {self.batch_size}")
+        if self.batch_size < 2 * self.table_ctx_size + 1:
+            raise ValueError(
+                "Batch size must be at least 2 * table context size + 1. "
+                f"Got batch size: {self.batch_size}, table context size: {self.table_ctx_size}"
+            )
 
         logging.info("Initializing components...")
         # Initialize components
@@ -83,7 +100,7 @@ class LionLinker:
 
         return self.llm_interaction.chat(prompt)
 
-    async def process_chunk(self, chunk):
+    async def process_chunk(self, chunk: pd.DataFrame):
         # Exclude GT columns from the chunk
         chunk = chunk.drop(columns=self.gt_columns, errors="ignore")
 
@@ -101,18 +118,23 @@ class LionLinker:
         # Run the async fetch candidates function
         mentions_to_candidates = await self.api_client.fetch_multiple_entities(mentions)
         results = []
-        for id_row, row in chunk.iterrows():
+        for loc_idx, (id_row, row) in enumerate(chunk.iterrows()):
+            table_view = chunk.iloc[
+                max(0, loc_idx - self.table_ctx_size) : loc_idx + self.table_ctx_size + 1
+            ]
+            table_list = [table_view.columns.tolist()] + table_view.values.tolist()
             for column in self.mention_columns:
                 entity_mention = row[column]
                 candidates = mentions_to_candidates.get(entity_mention, [])
-                row_str = ", ".join([f"{col}:{row[col]}" for col in chunk.columns])
                 prompt = self.prompt_generator.generate_prompt(
-                    self.table_summary,  # Use the precomputed table summary
-                    row_str,
-                    column,
-                    entity_mention,
-                    candidates,
+                    table=table_list,
+                    table_metadata=None,
+                    table_summary=self.table_summary,  # Use the precomputed table summary
+                    column_name=column,
+                    entity_mention=entity_mention,
+                    candidates=candidates,
                     compact=self.compact_candidates,
+                    format_candidates=self.format_candidates,
                 )
                 id_col = column_to_index[column]
 

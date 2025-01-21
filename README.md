@@ -85,6 +85,8 @@ model_name = 'llama3.2:1b'  # Use the correct model name
 output_csv = 'output_test.csv'
 batch_size = 10  # Set batch size for processing
 api_limit = 20  # Maximum number of results from the API per request
+format_candidates = True  # Format candidates as in TableLlama prompt
+table_ctx_size = 1
 
 # Load API parameters from environment variables
 api_url = os.getenv('API_URL')
@@ -111,7 +113,9 @@ lion_linker = LionLinker(
     compact_candidates=compact_candidates,
     model_api_provider=model_api_provider,
     model_api_key=model_api_key,
-    gt_columns=gt_columns
+    gt_columns=gt_columns,
+    table_ctx_size=table_ctx_size,
+    format_candidates=format_candidates
 )
 
 # Run the entity linking
@@ -121,12 +125,14 @@ await lion_linker.run()
 ### CLI Example
 
 ```bash
-python3 cli.py tests/data/film.csv output_test.csv \
-  --prompt-file prompt_template.txt \
-  --model llama3.2:1b \
-  --batch-size 10 \
+python3 -m lion_linker.cli tests/data/film.csv output_test.csv \
+  --prompt_file lion_linker/prompt/optimized_prompt_template.txt \
+  --model gemma2:2b \
+  --batch_size 10 \
   --mention_columns title \
-  --api-limit 20
+  --api_limit 20 \
+  --table_ctx_size 2 \
+  --format_candidates
 ```
 
 ### Explanation of Parameters

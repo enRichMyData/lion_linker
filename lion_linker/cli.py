@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import os
+import traceback
 
 from dotenv import load_dotenv
 
@@ -19,21 +20,32 @@ async def main():
     parser.add_argument("input_csv", help="Path to the input CSV file.")
     parser.add_argument("output_csv", help="Path to the output CSV file.")
     parser.add_argument(
-        "--api-url", default=os.getenv("API_URL"), help="Entity retrieval API URL."
+        "--api_url", default=os.getenv("API_URL"), help="Entity retrieval API URL."
     )
-    parser.add_argument("--api-token", default=os.getenv("API_TOKEN"), help="Optional API token.")
-    parser.add_argument("--prompt-file", required=True, help="File containing prompt template.")
+    parser.add_argument("--api_token", default=os.getenv("API_TOKEN"), help="Optional API token.")
+    parser.add_argument("--prompt_file", required=True, help="File containing prompt template.")
     parser.add_argument("--model", required=True, help="LLM model name.")
-    parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing.")
+    parser.add_argument("--batch_size", type=int, default=100, help="Batch size for processing.")
     parser.add_argument(
         "--mention_columns",
         nargs="*",
         required=True,
         help="List of columns containing entity mentions.",
     )
-    parser.add_argument("--api-limit", type=int, default=20, help="Limit for API calls per batch.")
+    parser.add_argument("--api_limit", type=int, default=20, help="Limit for API calls per batch.")
     parser.add_argument(
-        "--compact-candidates", action="store_true", help="Whether to compact candidates."
+        "--compact_candidates", action="store_true", help="Whether to compact candidates."
+    )
+    parser.add_argument(
+        "--format_candidates",
+        action="store_true",
+        help="Whether to format candidates in the prompt as in TableLlama.",
+    )
+    parser.add_argument(
+        "--table_ctx_size",
+        type=int,
+        default=1,
+        help="Number of rows to include in the table context.",
     )
     parser.add_argument(
         "--gt_columns",
@@ -42,9 +54,9 @@ async def main():
         help="Columns containing ground truth data to exclude",
     )
     parser.add_argument(
-        "--model-api-provider", default="ollama", help="Optional model API provider name."
+        "--model_api_provider", default="ollama", help="Optional model API provider name."
     )
-    parser.add_argument("--model-api-key", default="", help="Optional model API key.")
+    parser.add_argument("--model_api_key", default="", help="Optional model API key.")
 
     args = parser.parse_args()
 
@@ -63,6 +75,8 @@ async def main():
         model_api_provider=args.model_api_provider,
         model_api_key=args.model_api_key,
         gt_columns=args.gt_columns,
+        table_ctx_size=args.table_ctx_size,
+        format_candidates=args.format_candidates,
     )
 
     # Run the processing
@@ -70,6 +84,7 @@ async def main():
         await lion_linker.run()
     except Exception as e:
         logging.error(f"An error occurred: {e}")
+        logging.error(traceback.format_exc())
 
 
 if __name__ == "__main__":

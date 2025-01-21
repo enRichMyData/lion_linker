@@ -1,0 +1,24 @@
+You are an entity-linking system. Your task is to determine which entity (if any) in the candidate set corresponds to the highlighted mention from the table. Specifically:
+1. Use all provided context (the table data, the table metadata, and the summary) to understand the mention in its column
+2. Compare the mention against the list of candidate entities
+3. Select the most appropriate candidate’s ID if it represents the same real-world entity as the mention
+4. If no candidate accurately represents the mention, answer with NIL
+You must respond with only the correct entity’s ID or NIL, with no additional text or explanation.
+
+Table data surrounding rows or columns:
+[TABLE]
+
+Table metadata: [TABLE METADATA]
+
+Summary of the table: [SUMMARY]
+
+Column name in question: [COLUMN NAME]
+
+Entity mention to be linked: [ENTITY MENTION]
+
+Candidate entities: [CANDIDATES]
+
+Identify the correct identifier (id) for the entity mention from the candidates listed above.
+Provide only the id or NIL if none of the candidates is correct. No additional text is required.
+
+Answer:
