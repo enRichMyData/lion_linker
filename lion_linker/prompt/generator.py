@@ -51,10 +51,10 @@ class PromptGenerator:
         if format_candidates:
             candidates_text = ", ".join(
                 [
-                    f"<[id] {candidate['id']}; "
-                    f"[name] {candidate['name']}; "
-                    f"[description] {candidate['description']}; "
-                    f"[types] {','.join([t['name'] for t in candidate['types']])}>"
+                    f"<id: {candidate['id']}; "
+                    f"name: {candidate['name']}; "
+                    f"description: {candidate['description']}; "
+                    f"types: {','.join([t['name'] for t in candidate['types']])}>"
                     for candidate in optimized_candidates
                 ]
             )
