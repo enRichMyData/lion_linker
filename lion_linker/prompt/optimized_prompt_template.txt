@@ -16,7 +16,9 @@ Column name in question: [COLUMN NAME]
 
 Entity mention to be linked: [ENTITY MENTION]
 
-Candidate entities:
-[CANDIDATES]
+Candidate entities: [CANDIDATES]
 
-Answer only the ID or NIL
+Identify the correct identifier (id) for the entity mention from the candidates listed above.
+Provide only the id or NIL if none of the candidates is correct. No additional text is required.
+
+Answer:
