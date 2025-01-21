@@ -121,12 +121,13 @@ await lion_linker.run()
 ### CLI Example
 
 ```bash
-python3 cli.py tests/data/film.csv output_test.csv \
-  --prompt-file prompt_template.txt \
-  --model llama3.2:1b \
+python3 -m lion_linker.cli tests/data/film.csv output_test.csv \
+  --prompt-file lion_linker/prompt/optimized_prompt_template.txt \
+  --model gemma2:2b \
   --batch-size 10 \
   --mention_columns title \
-  --api-limit 20
+  --api-limit 20 \
+  --compact-candidates
 ```
 
 ### Explanation of Parameters
