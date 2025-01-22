@@ -53,8 +53,8 @@ class PromptGenerator:
                 [
                     f"<id: {candidate['id']}; "
                     f"name: {candidate['name']}; "
-                    f"description: {candidate['description']}; "
-                    f"types: {','.join([t['name'] for t in candidate['types']])}>"
+                    f"description: {candidate['description'] if candidate['description'] is not None else 'N.A.'}; "  # noqa: E501
+                    f"types: {','.join([t['name'] for t in candidate['types'] if t['name'] is not None])}>"  # noqa: E501
                     for candidate in optimized_candidates
                 ]
             )
