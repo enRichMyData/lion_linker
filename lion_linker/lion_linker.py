@@ -238,7 +238,95 @@ class LionLinker:
             self.table_summary = self.generate_table_summary(sample_data)
         else:
             raise ValueError("Not enough data to compute table summary")
+    
+    async def generate_sample_prompt(self, random_row: bool = True) -> dict:
+        """
+        Generates sample prompt(s) using a single row from the CSV file.
+        If random_row is True, a random row from the first batch is selected;
+        otherwise, the first row is used.
+        
+        Returns:
+            dict: A mapping of mention column names to the generated prompt.
+        """
+        # Ensure that the table summary has been computed.
+        if self.table_summary is None:
+            await self.compute_table_summary()
 
+        # Read the first chunk from the CSV file.
+        try:
+            chunk_iter = pd.read_csv(self.input_csv, chunksize=self.batch_size)
+            chunk = next(chunk_iter)
+        except StopIteration:
+            raise ValueError("Input CSV is empty or not accessible.")
+
+        # Remove ground truth (GT) columns if provided.
+        if self.gt_columns:
+            chunk = chunk.drop(columns=self.gt_columns, errors="ignore")
+
+        # Select a row from the chunk: random if requested, otherwise the first row.
+        if random_row:
+            # Select a random row from the chunk. Note that sample() preserves the original index,
+            # so we get the relative position (integer location) using get_loc().
+            random_row_df = chunk.sample(n=1)
+            random_index = random_row_df.index[0]
+            relative_position = chunk.index.get_loc(random_index)
+        else:
+            relative_position = 0
+
+        # Extract the sample row.
+        sample_row = chunk.iloc[relative_position]
+
+        # Create table context for the selected row using the table context size.
+        start_idx = max(0, relative_position - self.table_ctx_size)
+        end_idx = relative_position + self.table_ctx_size + 1
+        table_view = chunk.iloc[start_idx:end_idx]
+        table_list = [table_view.columns.tolist()] + table_view.values.tolist()
+
+        prompts = {}
+        # Generate a prompt for each column that contains entity mentions.
+        for col in self.mention_columns:
+            if col not in chunk.columns:
+                logging.error(f"Column '{col}' not found in CSV.")
+                continue
+
+            entity_mention = sample_row[col]
+            # Fetch candidate entities for the mention.
+            candidates_dict = await self.api_client.fetch_multiple_entities([entity_mention])
+            candidates = candidates_dict.get(entity_mention, [])
+            prompt = self.prompt_generator.generate_prompt(
+                table=table_list,
+                table_metadata=None,
+                table_summary=self.table_summary,
+                column_name=col,
+                entity_mention=entity_mention,
+                candidates=candidates,
+                compact=self.compact_candidates,
+                format_candidates=self.format_candidates,
+            )
+            prompts[col] = prompt
+
+        return prompts
+    
+    async def send_prompt_sample(self, prompt_sample: dict) -> dict:
+        """
+        Sends each prompt in the provided prompt sample to the LLM and returns the responses.
+
+        Args:
+            prompt_sample (dict): A dictionary mapping mention column names to prompt texts.
+            
+        Returns:
+            dict: A dictionary mapping each mention column to a dictionary with keys:
+                  'prompt', 'response', and 'extracted_identifier'.
+        """
+        results = {}
+        for col, prompt in prompt_sample.items():
+            response = self.llm_interaction.chat(prompt)
+            results[col] = {
+                "response": response.replace("\n", "").strip(),
+                "extracted_identifier": self.extract_identifier_from_response(response)
+            }
+        return results
+    
     async def run(self):
         logging.info(f"Starting processing of {self.input_csv}...")
 
