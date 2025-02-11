@@ -56,6 +56,7 @@ async def main():
     parser.add_argument(
         "--model_api_provider", default="ollama", help="Optional model API provider name."
     )
+    parser.add_argument("--ollama_host", default=None, help="Optional OLLAMA host.")
     parser.add_argument("--model_api_key", default="", help="Optional model API key.")
 
     args = parser.parse_args()
@@ -73,6 +74,7 @@ async def main():
         api_limit=args.api_limit,
         compact_candidates=args.compact_candidates,
         model_api_provider=args.model_api_provider,
+        ollama_host=args.ollama_host,
         model_api_key=args.model_api_key,
         gt_columns=args.gt_columns,
         table_ctx_size=args.table_ctx_size,

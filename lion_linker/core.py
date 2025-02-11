@@ -77,10 +77,14 @@ class APIClient:
 
 
 class LLMInteraction:
-    def __init__(self, model_name, model_api_provider, model_api_key=None):
+    def __init__(self, model_name, model_api_provider, ollama_host=None, model_api_key=None):
         self.model_name = model_name
         self.model_api_provider = model_api_provider
         self.model_api_key = model_api_key
+        if ollama_host:
+            self.ollama_client = ollama.Client(ollama_host) 
+        else:
+            self.ollama_client = ollama.Client() # Default Ollama host will be used
 
     def chat(self, message, stream=True):
         if self.model_api_provider == "ollama":
@@ -94,15 +98,11 @@ class LLMInteraction:
             raise ValueError(f"Unsupported API provider: {self.model_api_provider}")
 
     def _chat_ollama(self, message, stream):
-        session = ollama.chat(
+        response = self.ollama_client.chat(
             model=self.model_name,
             messages=[{"role": "user", "content": message}],
-            stream=stream,
         )
-        result = ""
-        for s in session:
-            result += s["message"]["content"]
-        return result
+        return response["message"]["content"]
 
     def _chat_openai(self, message, stream):
         # Set the API key directly

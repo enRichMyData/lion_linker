@@ -96,6 +96,7 @@ api_token = os.getenv('API_TOKEN')
 mention_columns = ["title"]  # Columns to link entities from
 compact_candidates = True  # Whether to compact candidates list
 model_api_provider = 'ollama'  # Optional model API provider
+ollama_host="http://localhost:11434" # Default Ollama host if not specified it will use the Default Ollama host anyway
 model_api_key = None  # Optional model API key if required
 gt_columns = []  # Specify any ground truth columns to exclude for testing
 
@@ -112,6 +113,7 @@ lion_linker = LionLinker(
     api_limit=api_limit,
     compact_candidates=compact_candidates,
     model_api_provider=model_api_provider,
+    ollama_host=ollama_host,
     model_api_key=model_api_key,
     gt_columns=gt_columns,
     table_ctx_size=table_ctx_size,
@@ -126,6 +128,7 @@ await lion_linker.run()
 
 ```bash
 python3 -m lion_linker.cli tests/data/film.csv output_test.csv \
+  --ollama_host http://localhost:11434 \
   --prompt_file lion_linker/prompt/optimized_prompt_template.txt \
   --model gemma2:2b \
   --batch_size 10 \
@@ -139,6 +142,7 @@ python3 -m lion_linker.cli tests/data/film.csv output_test.csv \
 
 - `input_csv`: Path to your input CSV file.
 - `output_csv`: Path where the output file will be saved.
+- `ollama_host`: The host where the Ollama service is running.
 - `--prompt-file`: Path to a file containing a custom prompt template.
 - `--model`: The LLM model to use for entity linking.
 - `--batch-size`: Defines how many rows to process at once.
