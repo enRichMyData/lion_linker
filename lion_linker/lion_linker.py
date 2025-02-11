@@ -28,6 +28,7 @@ class LionLinker:
         api_limit=10,
         compact_candidates=True,
         model_api_provider="ollama",
+        ollama_host=None,
         model_api_key=None,
         gt_columns=None,
         table_ctx_size: int = 1,
@@ -45,6 +46,7 @@ class LionLinker:
         self.mention_columns = mention_columns or []  # List of columns containing entity mentions
         self.compact_candidates = compact_candidates
         self.model_api_provider = model_api_provider
+        self.ollama_host = ollama_host
         self.model_api_key = model_api_key
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
         self.table_ctx_size = table_ctx_size
@@ -74,7 +76,7 @@ class LionLinker:
         self.prompt_generator = PromptGenerator(self.prompt_file)
         logging.info(f"Model API provider is: {self.model_api_provider}")
         self.llm_interaction = LLMInteraction(
-            self.model_name, self.model_api_provider, self.model_api_key
+            self.model_name, self.model_api_provider, self.ollama_host, self.model_api_key
         )
 
         # Initialize the output CSV with headers
