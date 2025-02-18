@@ -5,9 +5,14 @@ import json
 
 
 class PromptGenerator:
-    def __init__(self, prompt_file):
+    def __init__(self, prompt_file, example_file=None):
         with open(prompt_file, "r") as file:
             self.template = file.read()
+        
+        self.examples = None
+        if example_file is not None:
+            with open(example_file, "r") as file:
+                self.examples = file.read()
 
     def _format_table(self, table: list[list[str]]) -> str:
         return "\n".join(["|" + "|".join(map(str, row)) + "|" for row in table])
@@ -65,7 +70,7 @@ class PromptGenerator:
             else:
                 # Convert optimized candidates list to a pretty-printed JSON string
                 candidates_text = json.dumps(optimized_candidates, indent=2)
-
+        
         # Replace placeholders in the template with actual values
         # Define a dictionary with placeholders as keys and corresponding values
         replacements = {
@@ -76,6 +81,9 @@ class PromptGenerator:
             "[ENTITY MENTION]": entity_mention,
             "[CANDIDATES]": candidates_text,
         }
+
+        if self.examples is not None:
+            replacements["[EXAMPLES]"] = self.examples
 
         # Replace each placeholder using the dictionary
         for placeholder, value in replacements.items():

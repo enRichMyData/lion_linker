@@ -18,6 +18,7 @@ class LionLinker:
         self,
         input_csv,
         prompt_file,
+        example_file,
         model_name,
         api_url,
         api_token,
@@ -36,6 +37,7 @@ class LionLinker:
     ):
         self.input_csv = input_csv
         self.prompt_file = prompt_file
+        self.example_file = example_file
         self.model_name = model_name
         self.api_url = api_url
         self.api_token = api_token
@@ -73,7 +75,7 @@ class LionLinker:
             limit=self.api_limit,
             parse_response_func=parse_response,
         )
-        self.prompt_generator = PromptGenerator(self.prompt_file)
+        self.prompt_generator = PromptGenerator(self.prompt_file, self.example_file)
         logging.info(f"Model API provider is: {self.model_api_provider}")
         self.llm_interaction = LLMInteraction(
             self.model_name, self.model_api_provider, self.ollama_host, self.model_api_key
