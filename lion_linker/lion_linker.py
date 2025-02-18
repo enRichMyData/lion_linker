@@ -18,6 +18,7 @@ class LionLinker:
         self,
         input_csv,
         prompt_file,
+        example_file,
         model_name,
         api_url,
         api_token,
@@ -36,6 +37,7 @@ class LionLinker:
     ):
         self.input_csv = input_csv
         self.prompt_file = prompt_file
+        self.example_file = example_file
         self.model_name = model_name
         self.api_url = api_url
         self.api_token = api_token
@@ -73,7 +75,7 @@ class LionLinker:
             limit=self.api_limit,
             parse_response_func=parse_response,
         )
-        self.prompt_generator = PromptGenerator(self.prompt_file)
+        self.prompt_generator = PromptGenerator(self.prompt_file, self.example_file)
         logging.info(f"Model API provider is: {self.model_api_provider}")
         self.llm_interaction = LLMInteraction(
             self.model_name, self.model_api_provider, self.ollama_host, self.model_api_key
@@ -241,11 +243,12 @@ class LionLinker:
         else:
             raise ValueError("Not enough data to compute table summary")
     
-    async def generate_sample_prompt(self, random_row: bool = True) -> dict:
+    async def generate_sample_prompt(self, index: int = 0, random_row: bool = False) -> dict:
         """
         Generates sample prompt(s) using a single row from the CSV file.
-        If random_row is True, a random row from the first batch is selected;
-        otherwise, the first row is used.
+        
+        If random_row is True, a random row from the first batch is selected.
+        Otherwise, the row at the specified index (0-based) in the first batch is used.
         
         Returns:
             dict: A mapping of mention column names to the generated prompt.
@@ -265,15 +268,16 @@ class LionLinker:
         if self.gt_columns:
             chunk = chunk.drop(columns=self.gt_columns, errors="ignore")
 
-        # Select a row from the chunk: random if requested, otherwise the first row.
+        # Select a row from the chunk.
         if random_row:
-            # Select a random row from the chunk. Note that sample() preserves the original index,
-            # so we get the relative position (integer location) using get_loc().
-            random_row_df = chunk.sample(n=1)
-            random_index = random_row_df.index[0]
-            relative_position = chunk.index.get_loc(random_index)
+            # Select a random row from the chunk.
+            sample_row_df = chunk.sample(n=1)
+            relative_position = chunk.index.get_loc(sample_row_df.index[0])
         else:
-            relative_position = 0
+            # Use the row specified by the index parameter.
+            if index < 0 or index >= len(chunk):
+                raise ValueError(f"Index {index} is out of range for the first chunk (length {len(chunk)}).")
+            relative_position = index
 
         # Extract the sample row.
         sample_row = chunk.iloc[relative_position]

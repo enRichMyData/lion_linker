@@ -1,6 +1,6 @@
 This is an entity linking task. The goal for this task is to link the selected entity mention in the table cells to the entity in the knowledge base. You will be given a list of referent entities: please choose the correct one from the referent entity candidates or answer 'NIL' if no one is correct.
 
-[IN-CONTEXT EXAMPLES]
+[EXAMPLES]
 
 Here is the table data surrounding the mention:
 [TABLE]
