@@ -9,7 +9,7 @@ class PromptGenerator:
         with open(prompt_file, "r") as file:
             self.template = file.read()
         
-        self.examples = None
+        self.examples = "N.A."
         if example_file is not None:
             with open(example_file, "r") as file:
                 self.examples = file.read()
@@ -41,7 +41,7 @@ class PromptGenerator:
             table_summary = " ".join(table_summary.split())
         if column_name is None:
             column_name = "N.A."
-
+        
         # Optimize candidates list by reducing the verbosity of the JSON representation
         optimized_candidates = []
         for candidate in candidates:
@@ -74,6 +74,7 @@ class PromptGenerator:
         # Replace placeholders in the template with actual values
         # Define a dictionary with placeholders as keys and corresponding values
         replacements = {
+            "[EXAMPLES]": self.examples,
             "[TABLE]": formatted_table,
             "[TABLE METADATA]": table_metadata,
             "[SUMMARY]": table_summary,
@@ -81,9 +82,6 @@ class PromptGenerator:
             "[ENTITY MENTION]": entity_mention,
             "[CANDIDATES]": candidates_text,
         }
-
-        if self.examples is not None:
-            replacements["[EXAMPLES]"] = self.examples
 
         # Replace each placeholder using the dictionary
         for placeholder, value in replacements.items():
