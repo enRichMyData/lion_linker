@@ -18,7 +18,6 @@ class LionLinker:
         self,
         input_csv,
         prompt_file,
-        example_file,
         model_name,
         api_url,
         api_token,
@@ -34,10 +33,10 @@ class LionLinker:
         gt_columns=None,
         table_ctx_size: int = 1,
         format_candidates=True,
+        example_file=None
     ):
         self.input_csv = input_csv
         self.prompt_file = prompt_file
-        self.example_file = example_file
         self.model_name = model_name
         self.api_url = api_url
         self.api_token = api_token
@@ -53,6 +52,8 @@ class LionLinker:
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
         self.table_ctx_size = table_ctx_size
         self.format_candidates = format_candidates
+        self.example_file = example_file
+        
         if self.table_ctx_size < 0:
             raise ValueError(
                 "Table context size must be at least 0. "
