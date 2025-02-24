@@ -106,7 +106,24 @@ class LionLinker:
         return self.llm_interaction.chat(prompt)
 
     async def process_chunk(self, chunk: pd.DataFrame):
-        # Exclude GT columns from the chunk
+        # Create a global mapping dictionary for ground-truth QIDs (mention -> list of QIDs)
+        gt_mapping = {}
+        for col in self.mention_columns:
+            # The associated GT column is assumed to be "{col}_QID"
+            gt_col = f"{col}_QID"
+            if gt_col in self.gt_columns and gt_col in chunk.columns:
+                for _, row in chunk.iterrows():
+                    mention = row[col]
+                    qid = row[gt_col]
+                    if pd.notna(mention) and pd.notna(qid):
+                        # If the mention already exists, append the QID if not already included
+                        if mention in gt_mapping:
+                            if qid not in gt_mapping[mention]:
+                                gt_mapping[mention].append(qid)
+                        else:
+                            gt_mapping[mention] = [qid]
+            # Exclude GT columns from the chunk
+        print(gt_mapping)
         chunk = chunk.drop(columns=self.gt_columns, errors="ignore")
 
         # Check if mention_columns are present in the chunk
