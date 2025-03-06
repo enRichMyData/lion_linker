@@ -1,0 +1,24 @@
+# docker/docker-compose.yml
+services:
+  ollama:
+    container_name: ollama
+    image: ollama/ollama:latest  # Replace with the correct Ollama image name
+    ports:
+      - "11434:11434"
+    command: ["serve"]
+
+  linker:
+    container_name: linker
+    build:
+      context: ../  # Build context is the root of your project
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - RETRIEVER_ENDPOINT=https://lamapi.hel.sintef.cloud/lookup/entity-retrieval  # Replace with your actual endpoint
+      - RETRIEVER_TOKEN=lamapi_demo_2023  # Replace with your actual token
+    depends_on:
+      - ollama
+    volumes:
+      - ../data:/data  # Mount the host's "data" folder to /data in the container

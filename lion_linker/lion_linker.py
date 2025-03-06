@@ -36,7 +36,9 @@ class LionLinker:
         format_candidates=True,
     ):
         if not os.path.exists(input_csv) or os.path.splitext(input_csv)[1] != ".csv":
-            raise ValueError("Input CSV file does not exist or is not a CSV file.")
+            raise ValueError(
+                "Input CSV file does not exist or is not a CSV file." f"Input file: {input_csv}"
+            )
         self.input_csv = input_csv
         self.prompt_file_path = prompt_file_path
         self.model_name = model_name
@@ -73,6 +75,9 @@ class LionLinker:
         self.llm_interaction = LLMInteraction(
             self.model_name, self.model_api_provider, self.ollama_host, self.model_api_key
         )
+
+        logging.info("Pulling model if necessary...")
+        self.llm_interaction.ollama_client.pull(self.model_name)
 
         logging.info("Setup completed.")
         self.table_summary = None  # Placeholder for the table summary

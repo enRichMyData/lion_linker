@@ -33,6 +33,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+app = [
+    "fastapi==0.115",
+    "pydantic<3",
+    "uvicorn==0.34",
+]
 dev = [
     "flake8==4.0.1",
     "black==21.12b0",
