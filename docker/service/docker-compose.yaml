@@ -14,11 +14,11 @@ services:
               capabilities: [gpu]
     command: ["serve"]
 
-  linker:
-    container_name: linker
+  lion:
+    container_name: lion
     build:
-      context: ../  # Build context is the root of your project
-      dockerfile: docker/Dockerfile
+      context: ../../  # Build context is the root of your project
+      dockerfile: docker/service/Dockerfile
     ports:
       - "8000:8000"
     environment:
@@ -28,4 +28,4 @@ services:
     depends_on:
       - ollama
     volumes:
-      - ../data:/data  # Mount the host's "data" folder to /data in the container
+      - ../../data:/data  # Mount the host's "data" folder to /data in the container
