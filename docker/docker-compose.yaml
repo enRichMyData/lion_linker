@@ -5,6 +5,13 @@ services:
     image: ollama/ollama:latest  # Replace with the correct Ollama image name
     ports:
       - "11434:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     command: ["serve"]
 
   linker:
