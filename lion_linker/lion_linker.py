@@ -24,17 +24,52 @@ class LionLinker:
         model_name: str,
         retriever: RetrieverClient,
         output_csv: str | None = None,
-        prompt_file_path=DEFAULT_PROMPT_FILE_PATH,
-        chunk_size=64,
-        mention_columns=None,
-        compact_candidates=True,
-        model_api_provider="ollama",
-        ollama_host=None,
-        model_api_key=None,
-        gt_columns=None,
+        prompt_file_path: str = DEFAULT_PROMPT_FILE_PATH,
+        chunk_size: int = 64,
+        mention_columns: list | None = None,
+        format_candidates: bool = True,
+        compact_candidates: bool = True,
+        model_api_provider: str = "ollama",
+        ollama_host: str | None = None,
+        model_api_key: str | None = None,
+        gt_columns: list | None = None,
         table_ctx_size: int = 1,
-        format_candidates=True,
     ):
+        """Initialize a LionLinker instance.
+
+        Parameters:
+            input_csv (str | Path): The file path to the input CSV file.
+            model_name (str): The name of the model to use.
+            retriever (RetrieverClient): An instance of RetrieverClient used to fetch candidates from the KB.
+            output_csv (str, optional): The file path to the output CSV file.
+                If not provided, the output file will be named based on the input file,
+                with '_output' appended before the extension.
+                Defaults to None.
+            prompt_file_path (str, optional): The file path to the prompt file.
+                Defaults to DEFAULT_PROMPT_FILE_PATH.
+            chunk_size (int, optional): The size of the chunks to process.
+                Defaults to 64.
+            mention_columns (list, optional): Columns to consider for mentions.
+                Defaults to None.
+            format_candidates (bool, optional): Whether to format the candidate results as in
+                TableLlama (https://arxiv.org/abs/2311.09206).
+                Defaults to True.
+            compact_candidates (bool, optional): Whether to compact candidate entries.
+                This is only used if `format_candidates` is False.
+                Defaults to True.
+            model_api_provider (str, optional): The provider for the model API.
+                Defaults to "ollama".
+            ollama_host (str, optional): The host for the Ollama service.
+                Defaults to None.
+            model_api_key (str, optional): The API key for the model service.
+                Defaults to None.
+            gt_columns (list, optional): List of ground truth columns for reference.
+                Defaults to None.
+            table_ctx_size (int, optional): The context size for table data.
+                This is the number of rows to include before and after the current row.
+                Defaults to 1.
+        """
+
         if not os.path.exists(input_csv) or os.path.splitext(input_csv)[1] != ".csv":
             raise ValueError(
                 "Input CSV file does not exist or is not a CSV file." f"Input file: {input_csv}"
@@ -48,13 +83,13 @@ class LionLinker:
             self.output_csv = os.path.splitext(input_csv)[0] + "_output.csv"
         self.chunk_size = chunk_size
         self.mention_columns = mention_columns or []  # List of columns containing entity mentions
+        self.format_candidates = format_candidates
         self.compact_candidates = compact_candidates
         self.model_api_provider = model_api_provider
         self.ollama_host = ollama_host
         self.model_api_key = model_api_key
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
         self.table_ctx_size = table_ctx_size
-        self.format_candidates = format_candidates
         if self.table_ctx_size < 0:
             raise ValueError(
                 "Table context size must be at least 0. "
