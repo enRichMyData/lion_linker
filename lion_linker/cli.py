@@ -7,6 +7,7 @@ import traceback
 from dotenv import load_dotenv
 
 from lion_linker.lion_linker import LionLinker
+from lion_linker.retrievers import LamapiClient
 
 # Load environment variables from .env file if present
 load_dotenv()
@@ -20,19 +21,27 @@ async def main():
     parser.add_argument("input_csv", help="Path to the input CSV file.")
     parser.add_argument("output_csv", help="Path to the output CSV file.")
     parser.add_argument(
-        "--api_url", default=os.getenv("API_URL"), help="Entity retrieval API URL."
+        "--retriever_endpoint",
+        default=os.getenv("RETRIEVER_ENDPOINT"),
+        help="Entity retrieval URL.",
     )
-    parser.add_argument("--api_token", default=os.getenv("API_TOKEN"), help="Optional API token.")
-    parser.add_argument("--prompt_file", required=True, help="File containing prompt template.")
+    parser.add_argument(
+        "--retriever_token", default=os.getenv("RETRIEVER_TOKEN"), help="Optional retriever token."
+    )
+    parser.add_argument(
+        "--prompt_file_path", required=True, help="File containing prompt template."
+    )
     parser.add_argument("--model", required=True, help="LLM model name.")
-    parser.add_argument("--batch_size", type=int, default=100, help="Batch size for processing.")
+    parser.add_argument("--chunk_size", type=int, default=64, help="Chunk size for processing.")
     parser.add_argument(
         "--mention_columns",
         nargs="*",
         required=True,
         help="List of columns containing entity mentions.",
     )
-    parser.add_argument("--api_limit", type=int, default=20, help="Limit for API calls per batch.")
+    parser.add_argument(
+        "--num_candidates", type=int, default=20, help="Limit for API calls per batch."
+    )
     parser.add_argument(
         "--compact_candidates", action="store_true", help="Whether to compact candidates."
     )
@@ -61,17 +70,21 @@ async def main():
 
     args = parser.parse_args()
 
+    retriever = LamapiClient(
+        endpoint=args.retriever_endpoint,
+        token=args.retriever_token,
+        num_candidates=args.num_candidates,
+    )
+
     # Initialize the LionLinker instance with the parsed arguments
     lion_linker = LionLinker(
         input_csv=args.input_csv,
-        prompt_file=args.prompt_file,
+        prompt_file_path=args.prompt_file_path,
         model_name=args.model,
-        api_url=args.api_url,
-        api_token=args.api_token,
+        retriever=retriever,
         output_csv=args.output_csv,
-        batch_size=args.batch_size,
+        chunk_size=args.chunk_size,
         mention_columns=args.mention_columns,
-        api_limit=args.api_limit,
         compact_candidates=args.compact_candidates,
         model_api_provider=args.model_api_provider,
         ollama_host=args.ollama_host,
