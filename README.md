@@ -152,6 +152,21 @@ python -m lion_linker.cli \
   --retriever.cache False
 ```
 
+If one wants to change the retriever and for example use the Wikidata Lookup Service instead, the following can be used instead:
+
+```bash
+python -m lion_linker.cli \
+  --lion.input_csv "./data/film.csv" \
+  --lion.model_name "gemma2:2b" \
+  --lion.mention_columns '[title]' \
+  --lion.ollama_host "http://localhost:11434" \
+  --lion.format_candidates True \
+  --retriever.class_path lion_linker.retrievers.WikidataClient \
+  --retriever.endpoint ""https://query.wikidata.org/sparql"" \
+  --retriever.language "en" \
+  --retriever.num_candidates 5
+```
+
 ### Explanation of Parameters
 
 - `input_csv`: Path to your input CSV file.
