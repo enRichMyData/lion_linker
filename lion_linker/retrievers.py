@@ -99,7 +99,7 @@ class LamapiClient(RetrieverClient):
         raise Exception(f"Failed to fetch after {self.max_retries} retries")
 
 
-class WikidataRetrieverClient(RetrieverClient):
+class WikidataClient(RetrieverClient):
     def __init__(
         self,
         *args,
