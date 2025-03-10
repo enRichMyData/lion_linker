@@ -162,7 +162,7 @@ python -m lion_linker.cli \
   --lion.ollama_host "http://localhost:11434" \
   --lion.format_candidates True \
   --retriever.class_path lion_linker.retrievers.WikidataClient \
-  --retriever.endpoint ""https://query.wikidata.org/sparql"" \
+  --retriever.endpoint "https://query.wikidata.org/sparql" \
   --retriever.language "en" \
   --retriever.num_candidates 5
 ```
