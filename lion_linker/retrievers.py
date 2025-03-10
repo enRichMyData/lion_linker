@@ -101,12 +101,9 @@ class LamapiClient(RetrieverClient):
 
 class WikidataClient(RetrieverClient):
     def __init__(
-        self,
-        *args,
-        language: str = "en",
-        **kwargs,
+        self, endpoint: str = "https://query.wikidata.org/sparql", language: str = "en", **kwargs
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(endpoint=endpoint, **kwargs)
         self.language = language
 
     async def fetch_entities(self, mention: str, session: aiohttp.ClientSession):
