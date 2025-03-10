@@ -1,4 +1,6 @@
 import asyncio
+import json
+import urllib.parse
 
 import aiohttp
 
@@ -20,10 +22,10 @@ class RetrieverClient:
         self.backoff_factor = backoff_factor
         self.num_candidates = num_candidates
 
-    async def fetch_entities(self, mention, session):
+    async def fetch_entities(self, mention: str, session: aiohttp.ClientSession, **kwargs):
         raise NotImplementedError
 
-    async def fetch_multiple_entities(self, mentions: list[str]):
+    async def fetch_multiple_entities(self, mentions: list[str], **kwargs):
         async with aiohttp.ClientSession() as session:
             tasks = [self.fetch_entities(mention, session) for mention in mentions]
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -61,7 +63,7 @@ class LamapiClient(RetrieverClient):
         self.kg = kg
         self.cache = cache
 
-    async def fetch_entities(self, mention, session):
+    async def fetch_entities(self, mention: str, session: aiohttp.ClientSession, **kwargs):
         params = {
             "name": mention,
             "limit": self.num_candidates,
@@ -102,14 +104,14 @@ class LamapiClient(RetrieverClient):
 class WikidataClient(RetrieverClient):
     def __init__(
         self,
-        *args,
+        endpoint: str = "https://query.wikidata.org/sparql",
         language: str = "en",
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(endpoint, **kwargs)
         self.language = language
 
-    async def fetch_entities(self, mention: str, session: aiohttp.ClientSession):
+    async def fetch_entities(self, mention: str, session: aiohttp.ClientSession, **kwargs):
         """
         Given a mention and a session, fetch candidate entities (with labels and descriptions)
         and for each candidate retrieve its types (ordered by type label). Includes retries.
@@ -121,7 +123,7 @@ class WikidataClient(RetrieverClient):
         candidates_with_types = await asyncio.gather(*tasks)
         return candidates_with_types
 
-    async def _post_query_with_retries(self, query: str, session: aiohttp.ClientSession):
+    async def _post_query_with_retries(self, mention: str, session: aiohttp.ClientSession):
         headers = {
             "User-Agent": "sparqlwrapper 2.0.0 (rdflib.github.io/sparqlwrapper)",
             "Content-Type": "application/x-www-form-urlencoded",
@@ -131,7 +133,7 @@ class WikidataClient(RetrieverClient):
         while retries > 0:
             try:
                 async with session.post(
-                    self.endpoint, data={"query": query, "format": "json"}, headers=headers
+                    self.endpoint, data={"query": mention, "format": "json"}, headers=headers
                 ) as resp:
                     resp.raise_for_status()
                     return await resp.json()
@@ -206,3 +208,57 @@ class WikidataClient(RetrieverClient):
             print(f"Error retrieving types for candidate {candidate_id}: {e}")
             candidate["types"] = []
         return candidate
+
+
+class OpenRefineClient(RetrieverClient):
+    def __init__(self, endpoint: str = "https://wikidata.reconci.link/api", **kwargs):
+        return super().__init__(endpoint, **kwargs)
+
+    async def fetch_entities(self, mention: str, session: aiohttp.ClientSession, **kwargs):
+        mention_type = kwargs.get("mention_type", "")
+
+        # Construct the JSON query payload. Including "limit" set to self.num_candidates.
+        query_dict = {"q0": {"query": mention, "limit": self.num_candidates}}
+        if mention_type:
+            query_dict["q0"]["type"] = mention_type
+
+        # Serialize and URL-encode the JSON payload.
+        query_str = json.dumps(query_dict)
+        encoded_query = urllib.parse.quote(query_str)
+        url = f"{self.endpoint}?queries={encoded_query}"
+
+        # Attempt the request with retries.
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                headers = {}
+                if self.token:
+                    headers["Authorization"] = f"Bearer {self.token}"
+
+                async with session.get(url, headers=headers) as response:
+                    if response.status != 200:
+                        raise Exception(f"Error: Received status code {response.status}")
+                    data = await response.json()
+
+                    # Optionally parse the response using a custom function.
+                    if self.parse_response_func:
+                        return self.parse_response_func(data)
+
+                    output = []
+                    for result in data["q0"]["result"]:
+                        output.append(
+                            {
+                                "id": result["id"],
+                                "name": result["name"],
+                                "description": result["description"],
+                                "types": result.get("type", []),
+                            }
+                        )
+                    return output
+            except Exception as e:
+                if attempt == self.max_retries:
+                    raise Exception(
+                        f"Failed to fetch entities for '{mention}' "
+                        f"after {self.max_retries} attempts: {e}"
+                    )
+                # Exponential backoff before retrying.
+                await asyncio.sleep(self.backoff_factor * attempt)
