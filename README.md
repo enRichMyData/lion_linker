@@ -167,6 +167,20 @@ python -m lion_linker.cli \
   --retriever.num_candidates 5
 ```
 
+Another possibility is to retrieve candidates for mentions through [OpenRefine](https://openrefine.org/):
+
+```bash
+python -m lion_linker.cli \
+  --lion.input_csv "./data/film.csv" \
+  --lion.model_name "gemma2:2b" \
+  --lion.mention_columns '[title]' \
+  --lion.ollama_host "http://localhost:11434" \
+  --lion.format_candidates True \
+  --retriever.class_path lion_linker.retrievers.OpenRefineClient \
+  --retriever.endpoint "https://wikidata.reconci.link/api" \
+  --retriever.num_candidates 5
+```
+
 ### Explanation of Parameters
 
 - `input_csv`: Path to your input CSV file.
