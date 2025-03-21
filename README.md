@@ -59,12 +59,12 @@ cp .env.template .env
 
 2.	Edit the .env file to add your specific API details. Open .env in a text editor and fill in the required values:
 ```bash
-API_URL=https://lamapi.hel.sintef.cloud/lookup/entity-retrieval
-API_TOKEN=your_api_token  # Replace with your actual API token
+RETRIEVER_ENDPOINT=https://lamapi.hel.sintef.cloud/lookup/entity-retrieval
+RETRIEVER_TOKEN=your_api_token  # Replace with your actual API token
 ```
-The .env file will be used to securely store your API credentials and other sensitive configuration data, so make sure it is not committed to version control.
+The .env file will be used to securely store your Retriever credentials and other sensitive configuration data, so make sure it is not committed to version control.
 
-3.	Verify the .env file by checking that API_URL and API_TOKEN are correctly set, as these values will be automatically loaded by lion_linker when it runs.
+3.	Verify the .env file by checking that RETRIEVER_ENDPOINT and RETRIEVER_TOKEN are correctly set, as these values will be automatically loaded by lion_linker when it runs.
 
 ## Usage
 
@@ -72,70 +72,113 @@ The .env file will be used to securely store your API credentials and other sens
 
 ```python
 import os
+import subprocess
+
 from dotenv import load_dotenv
+
 from lion_linker.lion_linker import LionLinker
+from lion_linker.retrievers import LamapiClient
 
 # Load environment variables from the .env file
 load_dotenv()
 
 # Define necessary file paths and parameters
-input_csv = 'tests/data/film.csv'
-prompt_file = 'prompt_template.txt'
-model_name = 'llama3.2:1b'  # Use the correct model name
-output_csv = 'output_test.csv'
-batch_size = 10  # Set batch size for processing
-api_limit = 20  # Maximum number of results from the API per request
+input_csv = "tests/data/film.csv"
+prompt_file_path = "lion_linker/prompt/prompt_template.txt"
+model_name = "gemma2:2b"  # Use the correct model name
+output_csv = "output_test.csv"
+chunk_size = 16  # How many rows to process
+num_candidates = 20  # Maximum number of candidates from the Retriever per mention
 format_candidates = True  # Format candidates as in TableLlama prompt
 table_ctx_size = 1
 
 # Load API parameters from environment variables
-api_url = os.getenv('API_URL')
-api_token = os.getenv('API_TOKEN')
+retriever_endpoint = os.getenv("RETRIEVER_ENDPOINT")
+retriever_token = os.getenv("RETRIEVER_TOKEN")
 
 # Additional parameters as per the latest LionLinker version
 mention_columns = ["title"]  # Columns to link entities from
 compact_candidates = True  # Whether to compact candidates list
-model_api_provider = 'ollama'  # Optional model API provider
-ollama_host="http://localhost:11434" # Default Ollama host if not specified it will use the Default Ollama host anyway
+model_api_provider = "ollama"  # Optional model API provider
+ollama_host = "http://localhost:11434"  # Default Ollama host if not specified it will use the Default Ollama host anyway
 model_api_key = None  # Optional model API key if required
 gt_columns = []  # Specify any ground truth columns to exclude for testing
+
+# Initialize the retriever instance
+retriever = LamapiClient(retriever_endpoint, retriever_token, num_candidates=num_candidates)
 
 # Initialize the LionLinker instance
 lion_linker = LionLinker(
     input_csv=input_csv,
-    prompt_file=prompt_file,
     model_name=model_name,
-    api_url=api_url,
-    api_token=api_token,
+    retriever=retriever,
     output_csv=output_csv,
-    batch_size=batch_size,
+    prompt_file_path=prompt_file_path,
+    chunk_size=chunk_size,
     mention_columns=mention_columns,
-    api_limit=api_limit,
     compact_candidates=compact_candidates,
     model_api_provider=model_api_provider,
     ollama_host=ollama_host,
     model_api_key=model_api_key,
     gt_columns=gt_columns,
     table_ctx_size=table_ctx_size,
-    format_candidates=format_candidates
+    format_candidates=format_candidates,
 )
+
+# Start the Ollama server as a background process
+process = subprocess.Popen(["ollama", "serve"])
 
 # Run the entity linking
 await lion_linker.run()
+
+# Stop the Ollama server
+process.terminate()
 ```
 
 ### CLI Example
 
 ```bash
-python3 -m lion_linker.cli tests/data/film.csv output_test.csv \
-  --ollama_host http://localhost:11434 \
-  --prompt_file lion_linker/prompt/optimized_prompt_template.txt \
-  --model gemma2:2b \
-  --batch_size 10 \
-  --mention_columns title \
-  --api_limit 20 \
-  --table_ctx_size 2 \
-  --format_candidates
+python -m lion_linker.cli \
+  --lion.input_csv "./data/film.csv" \
+  --lion.model_name "gemma2:2b" \
+  --lion.mention_columns '[title]' \
+  --lion.ollama_host "http://localhost:11434" \
+  --lion.format_candidates True \
+  --retriever.class_path lion_linker.retrievers.LamapiClient \
+  --retriever.endpoint "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval" \
+  --retriever.token "lamapi_demo_2023" \
+  --retriever.kg wikidata \
+  --retriever.num_candidates 5 \
+  --retriever.cache False
+```
+
+If one wants to change the retriever and for example use the Wikidata Lookup Service instead, the following can be used instead:
+
+```bash
+python -m lion_linker.cli \
+  --lion.input_csv "./data/film.csv" \
+  --lion.model_name "gemma2:2b" \
+  --lion.mention_columns '[title]' \
+  --lion.ollama_host "http://localhost:11434" \
+  --lion.format_candidates True \
+  --retriever.class_path lion_linker.retrievers.WikidataClient \
+  --retriever.endpoint "https://query.wikidata.org/sparql" \
+  --retriever.language "en" \
+  --retriever.num_candidates 5
+```
+
+Another possibility is to retrieve candidates for mentions through [OpenRefine](https://openrefine.org/):
+
+```bash
+python -m lion_linker.cli \
+  --lion.input_csv "./data/film.csv" \
+  --lion.model_name "gemma2:2b" \
+  --lion.mention_columns '[title]' \
+  --lion.ollama_host "http://localhost:11434" \
+  --lion.format_candidates True \
+  --retriever.class_path lion_linker.retrievers.OpenRefineClient \
+  --retriever.endpoint "https://wikidata.reconci.link/api" \
+  --retriever.num_candidates 5
 ```
 
 ### Explanation of Parameters
@@ -143,11 +186,11 @@ python3 -m lion_linker.cli tests/data/film.csv output_test.csv \
 - `input_csv`: Path to your input CSV file.
 - `output_csv`: Path where the output file will be saved.
 - `ollama_host`: The host where the Ollama service is running.
-- `--prompt-file`: Path to a file containing a custom prompt template.
+- `--prompt_file_path`: Path to a file containing a custom prompt template.
 - `--model`: The LLM model to use for entity linking.
-- `--batch-size`: Defines how many rows to process at once.
+- `--chunk_size`: Defines how many rows to process at once.
 - `--mention_columns`: Columns in the CSV that contain entity mentions.
-- `--api-limit`: Maximum number of results returned by the API per batch.
+- `--num_candidates`: Maximum number of candidates returned by the API per mention.
 
 ## Running Tests
 

@@ -1,13 +1,17 @@
 import logging
 import os
 import re
+from pathlib import Path
 
 import pandas as pd
 from tqdm.asyncio import tqdm
 
-from lion_linker.core import APIClient, LLMInteraction
+from lion_linker import PROJECT_ROOT
+from lion_linker.core import LLMInteraction
 from lion_linker.prompt.generator import PromptGenerator
-from lion_linker.utils import parse_response
+from lion_linker.retrievers import RetrieverClient
+
+DEFAULT_PROMPT_FILE_PATH = os.path.join(PROJECT_ROOT, "prompt", "prompt_template.txt")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -16,76 +20,99 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 class LionLinker:
     def __init__(
         self,
-        input_csv,
-        prompt_file,
-        model_name,
-        api_url,
-        api_token,
-        output_csv,
-        kg="wikidata",
-        batch_size=1000,
-        mention_columns=None,
-        api_limit=10,
-        compact_candidates=True,
-        model_api_provider="ollama",
-        ollama_host=None,
-        model_api_key=None,
-        gt_columns=None,
+        input_csv: str | Path,
+        model_name: str,
+        retriever: RetrieverClient,
+        output_csv: str | None = None,
+        prompt_file_path: str = DEFAULT_PROMPT_FILE_PATH,
+        chunk_size: int = 64,
+        mention_columns: list | None = None,
+        format_candidates: bool = True,
+        compact_candidates: bool = True,
+        model_api_provider: str = "ollama",
+        ollama_host: str | None = None,
+        model_api_key: str | None = None,
+        gt_columns: list | None = None,
         table_ctx_size: int = 1,
-        format_candidates=True,
-        example_file=None
     ):
+        """Initialize a LionLinker instance.
+
+        Parameters:
+            input_csv (str | Path): The file path to the input CSV file.
+            model_name (str): The name of the model to use.
+            retriever (RetrieverClient): An instance of RetrieverClient used to fetch candidates from the KB.
+            output_csv (str, optional): The file path to the output CSV file.
+                If not provided, the output file will be named based on the input file,
+                with '_output' appended before the extension.
+                Defaults to None.
+            prompt_file_path (str, optional): The file path to the prompt file.
+                Defaults to DEFAULT_PROMPT_FILE_PATH.
+            chunk_size (int, optional): The size of the chunks to process.
+                Defaults to 64.
+            mention_columns (list, optional): Columns to consider for mentions.
+                Defaults to None.
+            format_candidates (bool, optional): Whether to format the candidate results as in
+                TableLlama (https://arxiv.org/abs/2311.09206).
+                Defaults to True.
+            compact_candidates (bool, optional): Whether to compact candidate entries.
+                This is only used if `format_candidates` is False.
+                Defaults to True.
+            model_api_provider (str, optional): The provider for the model API.
+                Defaults to "ollama".
+            ollama_host (str, optional): The host for the Ollama service.
+                Defaults to None.
+            model_api_key (str, optional): The API key for the model service.
+                Defaults to None.
+            gt_columns (list, optional): List of ground truth columns for reference.
+                Defaults to None.
+            table_ctx_size (int, optional): The context size for table data.
+                This is the number of rows to include before and after the current row.
+                Defaults to 1.
+        """
+
+        if not os.path.exists(input_csv) or os.path.splitext(input_csv)[1] != ".csv":
+            raise ValueError(
+                "Input CSV file does not exist or is not a CSV file." f"Input file: {input_csv}"
+            )
         self.input_csv = input_csv
-        self.prompt_file = prompt_file
+        self.prompt_file_path = prompt_file_path
         self.model_name = model_name
-        self.api_url = api_url
-        self.api_token = api_token
-        self.api_limit = api_limit
+        self.retriever = retriever
         self.output_csv = output_csv
-        self.kg = kg
-        self.batch_size = batch_size
+        if not self.output_csv:
+            self.output_csv = os.path.splitext(input_csv)[0] + "_output.csv"
+        self.chunk_size = chunk_size
         self.mention_columns = mention_columns or []  # List of columns containing entity mentions
+        self.format_candidates = format_candidates
         self.compact_candidates = compact_candidates
         self.model_api_provider = model_api_provider
         self.ollama_host = ollama_host
         self.model_api_key = model_api_key
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
         self.table_ctx_size = table_ctx_size
-        self.format_candidates = format_candidates
-        self.example_file = example_file
-        
         if self.table_ctx_size < 0:
             raise ValueError(
                 "Table context size must be at least 0. "
                 f"Got table context size: {self.table_ctx_size}"
             )
-        if self.batch_size < 1:
-            raise ValueError(f"Batch size must be at least 1. Got batch size: {self.batch_size}")
-        if self.batch_size < 2 * self.table_ctx_size + 1:
+        if self.chunk_size < 1:
+            raise ValueError(f"Chuck size must be at least 1. Got batch size: {self.chunk_size}")
+        if self.chunk_size < 2 * self.table_ctx_size + 1:
             raise ValueError(
                 "Batch size must be at least 2 * table context size + 1. "
-                f"Got batch size: {self.batch_size}, table context size: {self.table_ctx_size}"
+                f"Got batch size: {self.chunk_size}, table context size: {self.table_ctx_size}"
             )
 
         logging.info("Initializing components...")
-        # Initialize components
-        self.api_client = APIClient(
-            self.api_url,
-            token=self.api_token,
-            kg=self.kg,
-            limit=self.api_limit,
-            parse_response_func=parse_response,
-        )
-        self.prompt_generator = PromptGenerator(self.prompt_file, self.example_file)
+        self.prompt_generator = PromptGenerator(self.prompt_file_path)
+
         logging.info(f"Model API provider is: {self.model_api_provider}")
         self.llm_interaction = LLMInteraction(
             self.model_name, self.model_api_provider, self.ollama_host, self.model_api_key
         )
 
-        # Initialize the output CSV with headers
-        pd.DataFrame(columns=["Identifier", "LLM Answer", "Extracted Identifier"]).to_csv(
-            self.output_csv, index=False
-        )
+        logging.info("Pulling model if necessary...")
+        self.llm_interaction.ollama_client.pull(self.model_name)
 
         logging.info("Setup completed.")
         self.table_summary = None  # Placeholder for the table summary
@@ -121,7 +148,7 @@ class LionLinker:
             mentions.extend(chunk[column].dropna().unique())
 
         # Run the async fetch candidates function
-        mentions_to_candidates = await self.api_client.fetch_multiple_entities(mentions)
+        mentions_to_candidates = await self.retriever.fetch_multiple_entities(mentions)
         results = []
         for loc_idx, (id_row, row) in enumerate(chunk.iterrows()):
             table_view = chunk.iloc[
@@ -147,7 +174,7 @@ class LionLinker:
                 base_filename = os.path.splitext(os.path.basename(self.input_csv))[0]
 
                 # Creating identifier for the row and column
-                identifier = f"{base_filename}-{id_row}-{id_col}"
+                f"{base_filename}-{id_row}-{id_col}"
 
                 # Call LLM for each prompt individually
                 response = self.llm_interaction.chat(prompt)
@@ -157,11 +184,9 @@ class LionLinker:
 
                 results.append(
                     {
-                        "Identifier": identifier,
-                        "LLM Answer": response.replace(
-                            "\n", ""
-                        ).strip(),  # Replace newlines with empty string
-                        "Extracted Identifier": extracted_identifier,
+                        "id_row": id_row,
+                        f"{column}_llm_answer": " ".join(response.split()),
+                        f"{column}_qid": extracted_identifier,
                     }
                 )
 
@@ -210,7 +235,7 @@ class LionLinker:
         total_rows = 0
         chunks_to_sample = 5  # Number of chunks to sample
 
-        with pd.read_csv(self.input_csv, chunksize=self.batch_size) as reader:
+        with pd.read_csv(self.input_csv, chunksize=self.chunk_size) as reader:
             for i, chunk in enumerate(reader):
                 if i >= chunks_to_sample:
                     break
@@ -234,7 +259,7 @@ class LionLinker:
 
     async def compute_table_summary(self):
         # Read the first batch from the CSV
-        first_batch = pd.read_csv(self.input_csv, chunksize=self.batch_size)
+        first_batch = pd.read_csv(self.input_csv, chunksize=self.chunk_size)
         first_chunk = next(first_batch, None)
 
         if first_chunk is not None:
@@ -243,14 +268,13 @@ class LionLinker:
             self.table_summary = self.generate_table_summary(sample_data)
         else:
             raise ValueError("Not enough data to compute table summary")
-    
-    async def generate_sample_prompt(self, index: int = 0, random_row: bool = False) -> dict:
+
+    async def generate_sample_prompt(self, random_row: bool = True) -> dict:
         """
         Generates sample prompt(s) using a single row from the CSV file.
-        
-        If random_row is True, a random row from the first batch is selected.
-        Otherwise, the row at the specified index (0-based) in the first batch is used.
-        
+        If random_row is True, a random row from the first batch is selected;
+        otherwise, the first row is used.
+
         Returns:
             dict: A mapping of mention column names to the generated prompt.
         """
@@ -260,7 +284,7 @@ class LionLinker:
 
         # Read the first chunk from the CSV file.
         try:
-            chunk_iter = pd.read_csv(self.input_csv, chunksize=self.batch_size)
+            chunk_iter = pd.read_csv(self.input_csv, chunksize=self.chunk_size)
             chunk = next(chunk_iter)
         except StopIteration:
             raise ValueError("Input CSV is empty or not accessible.")
@@ -298,7 +322,7 @@ class LionLinker:
 
             entity_mention = sample_row[col]
             # Fetch candidate entities for the mention.
-            candidates_dict = await self.api_client.fetch_multiple_entities([entity_mention])
+            candidates_dict = await self.retriever.fetch_multiple_entities([entity_mention])
             candidates = candidates_dict.get(entity_mention, [])
             prompt = self.prompt_generator.generate_prompt(
                 table=table_list,
@@ -313,14 +337,14 @@ class LionLinker:
             prompts[col] = prompt
 
         return prompts
-    
+
     async def send_prompt_sample(self, prompt_sample: dict) -> dict:
         """
         Sends each prompt in the provided prompt sample to the LLM and returns the responses.
 
         Args:
             prompt_sample (dict): A dictionary mapping mention column names to prompt texts.
-            
+
         Returns:
             dict: A dictionary mapping each mention column to a dictionary with keys:
                   'prompt', 'response', and 'extracted_identifier'.
@@ -330,10 +354,10 @@ class LionLinker:
             response = self.llm_interaction.chat(prompt)
             results[col] = {
                 "response": response.replace("\n", "").strip(),
-                "extracted_identifier": self.extract_identifier_from_response(response)
+                "extracted_identifier": self.extract_identifier_from_response(response),
             }
         return results
-    
+
     async def run(self):
         logging.info(f"Starting processing of {self.input_csv}...")
 
@@ -350,18 +374,36 @@ class LionLinker:
         actual_rows_processed = 0
 
         # Proceed with batch processing
-        with pd.read_csv(self.input_csv, chunksize=self.batch_size) as reader:
-            for chunk in reader:
+        with pd.read_csv(self.input_csv, chunksize=self.chunk_size) as reader:
+            for chunk_id, chunk in enumerate(reader):
                 batch_results = await self.process_chunk(chunk)
-                # Append results to CSV, ensuring proper handling of newlines
-                pd.DataFrame(batch_results).to_csv(
-                    self.output_csv,
-                    mode="a",
-                    header=False,
-                    index=False,
-                    quoting=1,
-                    escapechar="\\",
-                )
+                batch_results = pd.DataFrame(batch_results)
+
+                # Merge batch_results with the chunk
+                if "id_row" not in chunk.columns:
+                    chunk = chunk.reset_index().rename(columns={"index": "id_row"})
+                merged_chunk = chunk.merge(batch_results, on="id_row", how="left")
+                merged_chunk = merged_chunk.drop(columns=["id_row"])
+
+                if chunk_id == 0:
+                    # Write the header for the first chunk
+                    merged_chunk.to_csv(
+                        self.output_csv,
+                        mode="w",
+                        index=False,
+                        quoting=1,
+                        escapechar="\\",
+                    )
+                else:
+                    # Append results to CSV, ensuring proper handling of newlines
+                    merged_chunk.to_csv(
+                        self.output_csv,
+                        mode="a",
+                        header=False,
+                        index=False,
+                        quoting=1,
+                        escapechar="\\",
+                    )
 
                 # Update the progress bar with the actual number of rows processed
                 actual_rows_processed += len(chunk)
