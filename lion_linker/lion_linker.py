@@ -293,15 +293,16 @@ class LionLinker:
         if self.gt_columns:
             chunk = chunk.drop(columns=self.gt_columns, errors="ignore")
 
-        # Select a row from the chunk: random if requested, otherwise the first row.
+        # Select a row from the chunk.
         if random_row:
-            # Select a random row from the chunk. Note that sample() preserves the original index,
-            # so we get the relative position (integer location) using get_loc().
-            random_row_df = chunk.sample(n=1)
-            random_index = random_row_df.index[0]
-            relative_position = chunk.index.get_loc(random_index)
+            # Select a random row from the chunk.
+            sample_row_df = chunk.sample(n=1)
+            relative_position = chunk.index.get_loc(sample_row_df.index[0])
         else:
-            relative_position = 0
+            # Use the row specified by the index parameter.
+            if index < 0 or index >= len(chunk):
+                raise ValueError(f"Index {index} is out of range for the first chunk (length {len(chunk)}).")
+            relative_position = index
 
         # Extract the sample row.
         sample_row = chunk.iloc[relative_position]
