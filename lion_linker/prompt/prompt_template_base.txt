@@ -13,7 +13,4 @@ The entity mention to be linked is: [ENTITY MENTION]
 
 Possible candidates for the entity are: [CANDIDATES]
 
-Identify the correct identifier (id) for the entity mention from the candidates listed above.
-Provide only the id or NIL if none of the candidates is correct. No additional text is required.
-
-Answer:
+[ANSWER_FORMAT]

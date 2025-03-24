@@ -18,6 +18,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 class LionLinker:
+    DEFAULT_ANSWER_FORMAT = """
+        Identify the correct identifier (id) for the entity mention from the candidates listed above.
+        Provide only the id or NIL if none of the candidates is correct. No additional text is required.
+    """
+    
     def __init__(
         self,
         input_csv: str | Path,
@@ -35,6 +40,7 @@ class LionLinker:
         few_shot_examples_file_path: str | None = None,  
         gt_columns: list | None = None,
         table_ctx_size: int = 1,
+        answer_format: str | None = None,
     ):
         """Initialize a LionLinker instance.
 
@@ -72,6 +78,8 @@ class LionLinker:
             table_ctx_size (int, optional): The context size for table data.
                 This is the number of rows to include before and after the current row.
                 Defaults to 1.
+            answer_format (str, optional): The format for the answer.
+                Defaults to None.
         """
 
         if not os.path.exists(input_csv) or os.path.splitext(input_csv)[1] != ".csv":
@@ -93,6 +101,8 @@ class LionLinker:
         self.ollama_host = ollama_host
         self.model_api_key = model_api_key
         self.few_shot_examples_file_path = few_shot_examples_file_path 
+        # Use a cleaned DEFAULT_ANSWER_FORMAT with extra spaces and newlines removed
+        self.answer_format = answer_format or " ".join(LionLinker.DEFAULT_ANSWER_FORMAT.split())
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
         self.table_ctx_size = table_ctx_size
         if self.table_ctx_size < 0:
@@ -172,6 +182,7 @@ class LionLinker:
                     candidates=candidates,
                     compact=self.compact_candidates,
                     format_candidates=self.format_candidates,
+                    answer_format=self.answer_format,
                 )
                 id_col = column_to_index[column]
 
@@ -344,6 +355,7 @@ class LionLinker:
                 candidates=candidates,
                 compact=self.compact_candidates,
                 format_candidates=self.format_candidates,
+                answer_format=self.answer_format,
             )
             prompts[col] = prompt
 

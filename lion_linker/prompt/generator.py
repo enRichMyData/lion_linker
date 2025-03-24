@@ -27,6 +27,7 @@ class PromptGenerator:
         candidates: list[dict[str, str | list[dict[str, str]]]],
         compact: bool = True,
         format_candidates: bool = True,
+        answer_format: str | None = None,
     ):
         template = copy.deepcopy(self.template)
 
@@ -86,6 +87,7 @@ class PromptGenerator:
             "[COLUMN NAME]": column_name,
             "[ENTITY MENTION]": entity_mention,
             "[CANDIDATES]": candidates_text,
+            "[ANSWER_FORMAT]": answer_format
         }
 
         # Replace each placeholder using the dictionary
