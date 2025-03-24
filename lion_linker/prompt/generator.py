@@ -44,12 +44,17 @@ class PromptGenerator:
 
         # Optimize candidates list by reducing the verbosity of the JSON representation
         optimized_candidates = []
+        print(candidates)
         for candidate in candidates:
             optimized_candidate = {
                 "id": candidate["id"],
                 "name": candidate["name"],
                 "description": candidate["description"],
-                "types": [{"id": t["id"], "name": t["name"]} for t in candidate["types"]],
+                "types": [
+                    {"id": t["id"], "name": t["name"]}
+                    for t in candidate["types"]
+                    if t["name"] is not None
+                ],
             }
             optimized_candidates.append(optimized_candidate)
 
