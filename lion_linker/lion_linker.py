@@ -32,6 +32,7 @@ class LionLinker:
         model_api_provider: str = "ollama",
         ollama_host: str | None = None,
         model_api_key: str | None = None,
+        few_shot_examples_file_path: str | None = None,  
         gt_columns: list | None = None,
         table_ctx_size: int = 1,
     ):
@@ -64,6 +65,8 @@ class LionLinker:
                 Defaults to None.
             model_api_key (str, optional): The API key for the model service.
                 Defaults to None.
+            few_shot_examples_file_path (str, optional): The file path to the few shot examples file.
+                Defaults to None.
             gt_columns (list, optional): List of ground truth columns for reference.
                 Defaults to None.
             table_ctx_size (int, optional): The context size for table data.
@@ -89,6 +92,7 @@ class LionLinker:
         self.model_api_provider = model_api_provider
         self.ollama_host = ollama_host
         self.model_api_key = model_api_key
+        self.few_shot_examples_file_path = few_shot_examples_file_path 
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
         self.table_ctx_size = table_ctx_size
         if self.table_ctx_size < 0:
@@ -105,7 +109,7 @@ class LionLinker:
             )
 
         logging.info("Initializing components...")
-        self.prompt_generator = PromptGenerator(self.prompt_file_path)
+        self.prompt_generator = PromptGenerator(self.prompt_file_path, self.few_shot_examples_file_path)
 
         logging.info(f"Model API provider is: {self.model_api_provider}")
         self.llm_interaction = LLMInteraction(

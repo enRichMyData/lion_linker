@@ -5,14 +5,14 @@ import json
 
 
 class PromptGenerator:
-    def __init__(self, prompt_file, example_file=None):
+    def __init__(self, prompt_file, few_shot_examples_file_path=None):
         with open(prompt_file, "r") as file:
             self.template = file.read()
         
-        self.examples = "N.A."
-        if example_file is not None:
-            with open(example_file, "r") as file:
-                self.examples = file.read()
+        self.few_shot_examples = "N.A."
+        if few_shot_examples_file_path is not None:
+            with open(few_shot_examples_file_path, "r") as file:
+                self.few_shot_examples = file.read()
 
     def _format_table(self, table: list[list[str]]) -> str:
         return "\n".join(["|" + "|".join(map(str, row)) + "|" for row in table])
@@ -79,7 +79,7 @@ class PromptGenerator:
         # Replace placeholders in the template with actual values
         # Define a dictionary with placeholders as keys and corresponding values
         replacements = {
-            "[EXAMPLES]": self.examples,
+            "[EXAMPLES]": self.few_shot_examples,
             "[TABLE]": formatted_table,
             "[TABLE METADATA]": table_metadata,
             "[SUMMARY]": table_summary,
