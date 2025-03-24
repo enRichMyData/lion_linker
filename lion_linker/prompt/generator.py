@@ -8,7 +8,7 @@ class PromptGenerator:
     def __init__(self, prompt_file, few_shot_examples_file_path=None):
         with open(prompt_file, "r") as file:
             self.template = file.read()
-        
+
         self.few_shot_examples = "N.A."
         if few_shot_examples_file_path is not None:
             with open(few_shot_examples_file_path, "r") as file:
@@ -42,7 +42,7 @@ class PromptGenerator:
             table_summary = " ".join(table_summary.split())
         if column_name is None:
             column_name = "N.A."
-        
+
         # Optimize candidates list by reducing the verbosity of the JSON representation
         optimized_candidates = []
         print(candidates)
@@ -87,7 +87,7 @@ class PromptGenerator:
             "[COLUMN NAME]": column_name,
             "[ENTITY MENTION]": entity_mention,
             "[CANDIDATES]": candidates_text,
-            "[ANSWER_FORMAT]": answer_format
+            "[ANSWER_FORMAT]": answer_format,
         }
 
         # Replace each placeholder using the dictionary

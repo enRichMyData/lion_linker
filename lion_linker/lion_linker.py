@@ -19,10 +19,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 class LionLinker:
     DEFAULT_ANSWER_FORMAT = """
-        Identify the correct identifier (id) for the entity mention from the candidates listed above.
-        Provide only the id or NIL if none of the candidates is correct. No additional text is required.
+        Identify the correct identifier (id) for
+        the entity mention from the candidates listed above.
+        Provide only the id or NIL if none of the candidates is correct.
+        No additional text is required.
     """
-    
+
     def __init__(
         self,
         input_csv: str | Path,
@@ -37,7 +39,7 @@ class LionLinker:
         model_api_provider: str = "ollama",
         ollama_host: str | None = None,
         model_api_key: str | None = None,
-        few_shot_examples_file_path: str | None = None,  
+        few_shot_examples_file_path: str | None = None,
         gt_columns: list | None = None,
         table_ctx_size: int = 1,
         answer_format: str | None = None,
@@ -71,7 +73,8 @@ class LionLinker:
                 Defaults to None.
             model_api_key (str, optional): The API key for the model service.
                 Defaults to None.
-            few_shot_examples_file_path (str, optional): The file path to the few shot examples file.
+            few_shot_examples_file_path (str, optional): The file path to
+                the few shot examples file.
                 Defaults to None.
             gt_columns (list, optional): List of ground truth columns for reference.
                 Defaults to None.
@@ -100,7 +103,7 @@ class LionLinker:
         self.model_api_provider = model_api_provider
         self.ollama_host = ollama_host
         self.model_api_key = model_api_key
-        self.few_shot_examples_file_path = few_shot_examples_file_path 
+        self.few_shot_examples_file_path = few_shot_examples_file_path
         # Use a cleaned DEFAULT_ANSWER_FORMAT with extra spaces and newlines removed
         self.answer_format = answer_format or " ".join(LionLinker.DEFAULT_ANSWER_FORMAT.split())
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
@@ -119,7 +122,9 @@ class LionLinker:
             )
 
         logging.info("Initializing components...")
-        self.prompt_generator = PromptGenerator(self.prompt_file_path, self.few_shot_examples_file_path)
+        self.prompt_generator = PromptGenerator(
+            self.prompt_file_path, self.few_shot_examples_file_path
+        )
 
         logging.info(f"Model API provider is: {self.model_api_provider}")
         self.llm_interaction = LLMInteraction(
