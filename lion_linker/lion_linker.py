@@ -40,7 +40,8 @@ class LionLinker:
         Parameters:
             input_csv (str | Path): The file path to the input CSV file.
             model_name (str): The name of the model to use.
-            retriever (RetrieverClient): An instance of RetrieverClient used to fetch candidates from the KB.
+            retriever (RetrieverClient): An instance of RetrieverClient used to fetch candidates
+                from the KB.
             output_csv (str, optional): The file path to the output CSV file.
                 If not provided, the output file will be named based on the input file,
                 with '_output' appended before the extension.
@@ -269,7 +270,9 @@ class LionLinker:
         else:
             raise ValueError("Not enough data to compute table summary")
 
-    async def generate_sample_prompt(self, random_row: bool = True, row_index: int | None = None) -> dict:
+    async def generate_sample_prompt(
+        self, random_row: bool = True, row_index: int | None = None
+    ) -> dict:
         """
         Generates sample prompt(s) using a single row from the CSV file.
         If random_row is True, a random row from the first batch is selected;
@@ -303,7 +306,9 @@ class LionLinker:
             if row_index is None:
                 row_index = 0
             if row_index < 0 or row_index >= len(chunk):
-                raise ValueError(f"Index {row_index} is out of range for the first chunk (length {len(chunk)}).")
+                raise ValueError(
+                    f"Index {row_index} is out of range for the first chunk (length {len(chunk)})."
+                )
             relative_position = row_index
 
         # Extract the sample row.
