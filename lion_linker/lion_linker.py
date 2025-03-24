@@ -40,7 +40,8 @@ class LionLinker:
         Parameters:
             input_csv (str | Path): The file path to the input CSV file.
             model_name (str): The name of the model to use.
-            retriever (RetrieverClient): An instance of RetrieverClient used to fetch candidates from the KB.
+            retriever (RetrieverClient): An instance of RetrieverClient used to fetch candidates
+                from the KB.
             output_csv (str, optional): The file path to the output CSV file.
                 If not provided, the output file will be named based on the input file,
                 with '_output' appended before the extension.
@@ -269,7 +270,9 @@ class LionLinker:
         else:
             raise ValueError("Not enough data to compute table summary")
 
-    async def generate_sample_prompt(self, random_row: bool = True) -> dict:
+    async def generate_sample_prompt(
+        self, random_row: bool = True, row_index: int | None = None
+    ) -> dict:
         """
         Generates sample prompt(s) using a single row from the CSV file.
         If random_row is True, a random row from the first batch is selected;
@@ -294,15 +297,19 @@ class LionLinker:
             chunk = chunk.drop(columns=self.gt_columns, errors="ignore")
 
         # Select a row from the chunk.
-        if random_row:
+        if random_row and row_index is None:
             # Select a random row from the chunk.
             sample_row_df = chunk.sample(n=1)
             relative_position = chunk.index.get_loc(sample_row_df.index[0])
         else:
-            # Use the row specified by the index parameter.
-            if index < 0 or index >= len(chunk):
-                raise ValueError(f"Index {index} is out of range for the first chunk (length {len(chunk)}).")
-            relative_position = index
+            # Use the row specified by the index parameter (default to 0 if not provided).
+            if row_index is None:
+                row_index = 0
+            if row_index < 0 or row_index >= len(chunk):
+                raise ValueError(
+                    f"Index {row_index} is out of range for the first chunk (length {len(chunk)})."
+                )
+            relative_position = row_index
 
         # Extract the sample row.
         sample_row = chunk.iloc[relative_position]

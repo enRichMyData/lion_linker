@@ -44,6 +44,7 @@ class PromptGenerator:
         
         # Optimize candidates list by reducing the verbosity of the JSON representation
         optimized_candidates = []
+        print(candidates)
         for candidate in candidates:
             optimized_candidate = {
                 "id": candidate["id"],
@@ -74,7 +75,7 @@ class PromptGenerator:
             else:
                 # Convert optimized candidates list to a pretty-printed JSON string
                 candidates_text = json.dumps(optimized_candidates, indent=2)
-        
+
         # Replace placeholders in the template with actual values
         # Define a dictionary with placeholders as keys and corresponding values
         replacements = {
