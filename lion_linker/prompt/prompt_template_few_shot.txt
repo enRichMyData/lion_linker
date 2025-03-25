@@ -1,5 +1,7 @@
 This is an entity linking task. The goal for this task is to link the selected entity mention in the table cells to the entity in the knowledge base. You will be given a list of referent entities: please choose the correct one from the referent entity candidates or answer 'NIL' if no one is correct.
 
+Example of entity linking tasks: [EXAMPLES]
+
 Here is the table data surrounding the mention:
 [TABLE]
 
@@ -13,7 +15,4 @@ The entity mention to be linked is: [ENTITY MENTION]
 
 Possible candidates for the entity are: [CANDIDATES]
 
-Identify the correct identifier (id) for the entity mention from the candidates listed above.
-Provide only the id or NIL if none of the candidates is correct. No additional text is required.
-
-Answer:
+[ANSWER_FORMAT]

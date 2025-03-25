@@ -1,0 +1,36 @@
+### Example 1: Linking a Film Title
+Table data:
+|title|director|release year|
+|Frozen|Chris Buck and Jennifer Lee|2013|
+
+Column name: title
+Entity mention: Frozen
+Candidates: [{"id":"Q246283","name":"Frozen","description":"2013 American computer-animated film","types":[{"id":"Q11424","name":"film"}]},{"id":"Q18148065","name":"Frozen","description":"American media franchise","types":[{"id":"Q196600","name":"media franchise"}]},{"id":"Q887961","name":"Frozen","description":"2010 American film","types":[{"id":"Q11424","name":"film"}]}]
+
+Answer: Q246283
+
+---
+
+### Example 2: Linking a Person
+Table data:
+|author|book title|
+|George Orwell|1984|
+
+Column name: author
+Entity mention: George Orwell
+Candidates: [{"id":"Q3335","name":"George Orwell","description":"British writer and journalist (1903–1950)","types":[{"id":"Q36180","name":"writer"}]},{"id":"Q47511834","name":"George Orwell","description":"painting by R.B. Kitaj","types":[{"id":"Q3305213","name":"painting"}]}]
+
+Answer: Q3335
+
+---
+
+### Example 3: Returning NIL
+Table data:
+|city|state|country|
+|Springfield|Florida|USA|
+
+Column name: city
+Entity mention: Springfield
+Candidates: [{"id":"Q28515","name":"Springfield","description":"city in and county seat of Sangamon County, Illinois, United States and Illinois federated state capital city","types":[{"id":"Q515","name":"city"}]},{"id":"Q135615","name":"Springfield","description":"city in Greene County, Missouri, United States","types":[{"id":"Q515","name":"city"}]},{"id":"Q40268","name":"Springfield","description":"city in Lane County, Oregon, United States","types":[{"id":"Q515","name":"city"}]}]
+
+Answer: NIL

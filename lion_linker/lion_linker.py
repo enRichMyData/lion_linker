@@ -18,6 +18,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 class LionLinker:
+    DEFAULT_ANSWER_FORMAT = """
+        Identify the correct identifier (id) for
+        the entity mention from the candidates listed above.
+        Provide only the id or NIL if none of the candidates is correct.
+        No additional text is required.
+    """
+
     def __init__(
         self,
         input_csv: str | Path,
@@ -32,15 +39,18 @@ class LionLinker:
         model_api_provider: str = "ollama",
         ollama_host: str | None = None,
         model_api_key: str | None = None,
+        few_shot_examples_file_path: str | None = None,
         gt_columns: list | None = None,
         table_ctx_size: int = 1,
+        answer_format: str | None = None,
     ):
         """Initialize a LionLinker instance.
 
         Parameters:
             input_csv (str | Path): The file path to the input CSV file.
             model_name (str): The name of the model to use.
-            retriever (RetrieverClient): An instance of RetrieverClient used to fetch candidates from the KB.
+            retriever (RetrieverClient): An instance of RetrieverClient used to fetch candidates
+                from the KB.
             output_csv (str, optional): The file path to the output CSV file.
                 If not provided, the output file will be named based on the input file,
                 with '_output' appended before the extension.
@@ -63,11 +73,16 @@ class LionLinker:
                 Defaults to None.
             model_api_key (str, optional): The API key for the model service.
                 Defaults to None.
+            few_shot_examples_file_path (str, optional): The file path to
+                the few shot examples file.
+                Defaults to None.
             gt_columns (list, optional): List of ground truth columns for reference.
                 Defaults to None.
             table_ctx_size (int, optional): The context size for table data.
                 This is the number of rows to include before and after the current row.
                 Defaults to 1.
+            answer_format (str, optional): The format for the answer.
+                Defaults to None.
         """
 
         if not os.path.exists(input_csv) or os.path.splitext(input_csv)[1] != ".csv":
@@ -88,6 +103,9 @@ class LionLinker:
         self.model_api_provider = model_api_provider
         self.ollama_host = ollama_host
         self.model_api_key = model_api_key
+        self.few_shot_examples_file_path = few_shot_examples_file_path
+        # Use a cleaned DEFAULT_ANSWER_FORMAT with extra spaces and newlines removed
+        self.answer_format = answer_format or " ".join(LionLinker.DEFAULT_ANSWER_FORMAT.split())
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
         self.table_ctx_size = table_ctx_size
         if self.table_ctx_size < 0:
@@ -104,7 +122,9 @@ class LionLinker:
             )
 
         logging.info("Initializing components...")
-        self.prompt_generator = PromptGenerator(self.prompt_file_path)
+        self.prompt_generator = PromptGenerator(
+            self.prompt_file_path, self.few_shot_examples_file_path
+        )
 
         logging.info(f"Model API provider is: {self.model_api_provider}")
         self.llm_interaction = LLMInteraction(
@@ -167,6 +187,7 @@ class LionLinker:
                     candidates=candidates,
                     compact=self.compact_candidates,
                     format_candidates=self.format_candidates,
+                    answer_format=self.answer_format,
                 )
                 id_col = column_to_index[column]
 
@@ -269,7 +290,9 @@ class LionLinker:
         else:
             raise ValueError("Not enough data to compute table summary")
 
-    async def generate_sample_prompt(self, random_row: bool = True) -> dict:
+    async def generate_sample_prompt(
+        self, random_row: bool = True, row_index: int | None = None
+    ) -> dict:
         """
         Generates sample prompt(s) using a single row from the CSV file.
         If random_row is True, a random row from the first batch is selected;
@@ -293,15 +316,20 @@ class LionLinker:
         if self.gt_columns:
             chunk = chunk.drop(columns=self.gt_columns, errors="ignore")
 
-        # Select a row from the chunk: random if requested, otherwise the first row.
-        if random_row:
-            # Select a random row from the chunk. Note that sample() preserves the original index,
-            # so we get the relative position (integer location) using get_loc().
-            random_row_df = chunk.sample(n=1)
-            random_index = random_row_df.index[0]
-            relative_position = chunk.index.get_loc(random_index)
+        # Select a row from the chunk.
+        if random_row and row_index is None:
+            # Select a random row from the chunk.
+            sample_row_df = chunk.sample(n=1)
+            relative_position = chunk.index.get_loc(sample_row_df.index[0])
         else:
-            relative_position = 0
+            # Use the row specified by the index parameter (default to 0 if not provided).
+            if row_index is None:
+                row_index = 0
+            if row_index < 0 or row_index >= len(chunk):
+                raise ValueError(
+                    f"Index {row_index} is out of range for the first chunk (length {len(chunk)})."
+                )
+            relative_position = row_index
 
         # Extract the sample row.
         sample_row = chunk.iloc[relative_position]
@@ -332,6 +360,7 @@ class LionLinker:
                 candidates=candidates,
                 compact=self.compact_candidates,
                 format_candidates=self.format_candidates,
+                answer_format=self.answer_format,
             )
             prompts[col] = prompt
 
