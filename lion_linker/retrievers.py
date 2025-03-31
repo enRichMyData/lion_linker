@@ -26,8 +26,21 @@ class RetrieverClient:
         raise NotImplementedError
 
     async def fetch_multiple_entities(self, mentions: list[str], **kwargs):
+        # Extract mention_to_qids mapping from kwargs if present
+        mention_to_qids = kwargs.get("mention_to_qids", {})
+
         async with aiohttp.ClientSession() as session:
-            tasks = [self.fetch_entities(mention, session) for mention in mentions]
+            # Create tasks with individual kwargs for each mention
+            tasks = []
+            for mention in mentions:
+                # Check if this mention has forced QIDs in the mapping
+                mention_kwargs = {}
+                if mention in mention_to_qids:
+                    mention_kwargs["forced_ids"] = mention_to_qids[mention]
+
+                # Create task with any mention-specific kwargs
+                tasks.append(self.fetch_entities(mention, session, **mention_kwargs))
+
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             # Handle failed requests (e.g., those returning exceptions)
@@ -72,6 +85,14 @@ class LamapiClient(RetrieverClient):
         }  # Added kg parameter to request params
         if self.token:
             params["token"] = self.token
+
+        # New code to support forced qids via "forced_ids" keyword argument.
+        forced_ids = kwargs.get("forced_ids")
+        if forced_ids:
+            if isinstance(forced_ids, list):
+                params["ids"] = " ".join(forced_ids)
+            else:
+                params["ids"] = forced_ids
 
         retries = 0
         while retries < self.max_retries:
