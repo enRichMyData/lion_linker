@@ -43,6 +43,7 @@ class LionLinker:
         gt_columns: list | None = None,
         table_ctx_size: int = 1,
         answer_format: str | None = None,
+        **kwargs,
     ):
         """Initialize a LionLinker instance.
 
@@ -83,6 +84,9 @@ class LionLinker:
                 Defaults to 1.
             answer_format (str, optional): The format for the answer.
                 Defaults to None.
+            **kwargs: Additional keyword arguments.
+                      Supported hidden features:
+                      - mention_to_qids: Dict mapping mentions to QIDs to force in candidates
         """
 
         if not os.path.exists(input_csv) or os.path.splitext(input_csv)[1] != ".csv":
@@ -137,6 +141,9 @@ class LionLinker:
         logging.info("Setup completed.")
         self.table_summary = None  # Placeholder for the table summary
 
+        # Hidden parameter for mention to QID mapping
+        self._mention_to_qids = kwargs.get("mention_to_qids", {})
+
     def generate_table_summary(self, sample_data):
         # Exclude GT columns for testing
         sample_data = sample_data.drop(columns=self.gt_columns, errors="ignore")
@@ -167,8 +174,12 @@ class LionLinker:
         for column in self.mention_columns:
             mentions.extend(chunk[column].dropna().unique())
 
-        # Run the async fetch candidates function
-        mentions_to_candidates = await self.retriever.fetch_multiple_entities(mentions)
+        # Run the async fetch candidates function with the hidden mention_to_qids parameter
+        kwargs = {}
+        if self._mention_to_qids:
+            kwargs["mention_to_qids"] = self._mention_to_qids
+
+        mentions_to_candidates = await self.retriever.fetch_multiple_entities(mentions, **kwargs)
         results = []
         for loc_idx, (id_row, row) in enumerate(chunk.iterrows()):
             table_view = chunk.iloc[
@@ -348,8 +359,14 @@ class LionLinker:
                 continue
 
             entity_mention = sample_row[col]
-            # Fetch candidate entities for the mention.
-            candidates_dict = await self.retriever.fetch_multiple_entities([entity_mention])
+            # Fetch candidate entities for the mention with mention_to_qids if available
+            kwargs = {}
+            if self._mention_to_qids:
+                kwargs["mention_to_qids"] = self._mention_to_qids
+
+            candidates_dict = await self.retriever.fetch_multiple_entities(
+                [entity_mention], **kwargs
+            )
             candidates = candidates_dict.get(entity_mention, [])
             prompt = self.prompt_generator.generate_prompt(
                 table=table_list,
