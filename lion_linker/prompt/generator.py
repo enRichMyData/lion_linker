@@ -45,7 +45,6 @@ class PromptGenerator:
 
         # Optimize candidates list by reducing the verbosity of the JSON representation
         optimized_candidates = []
-        print(candidates)
         for candidate in candidates:
             optimized_candidate = {
                 "id": candidate["id"],
