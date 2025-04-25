@@ -223,41 +223,38 @@ class LionLinker:
                 )
 
         return results
-
+    
     def extract_identifier_from_response(self, response):
         """
-        Extracts the last QID from the response, or 'NIL' if NIL appears after the last QID.
-        Returns 'No Identifier' if neither QID nor NIL is present.
+        Extracts the identifier from the structured response.
+        Prioritizes Wikidata Q-format IDs, then checks for Crunchbase IDs.
+        Returns 'NIL' if no valid identifier is found.
 
         Parameters:
         response (str): The response text to extract from.
 
         Returns:
-        str: The last QID, 'NIL' if 'NIL' appears after the last QID,
-        or 'No Identifier' if neither is found.
+        identifier (str): The extracted ID or 'NIL'.
         """
-        # Find all QIDs in the response (assuming QIDs start with 'Q' followed by digits)
-        qids = re.findall(r"Q\d+", response)
+        try:
+            # First check for Wikidata Q-format (case sensitive)
+            q_match = re.search(r'(?:wikidata id: |id: )?(Q\d+)', response)
+            if q_match:
+                identifier = q_match.group(1)
+                return identifier
 
-        # Check if 'NIL' appears in the response
-        nil_position = response.rfind("NIL")
+            # Then check for Crunchbase format (lowercase with hyphens)
+            cb_match = re.search(r'(?:crunchbase id: |id: )?([a-z][a-z0-9-]*)', response)
+            if cb_match:
+                identifier = cb_match.group(1)
+                # Validate it's not just a single word without proper format
+                if '-' in identifier or len(identifier) > 5:  # Basic Crunchbase ID validation
+                    return identifier
 
-        # If there are no QIDs and no NIL, return 'No Identifier'
-        if not qids and nil_position == -1:
-            return "No Identifier"
+        except Exception as e:
+            logging.error(f"Error parsing response: {response}. Error: {str(e)}")
 
-        # If there are no QIDs but NIL is present, return 'NIL'
-        if not qids:
-            return "NIL"
-
-        # Find the position of the last QID in the response
-        last_qid_position = response.rfind(qids[-1])
-
-        # Return 'NIL' if it appears after the last QID, otherwise return the last QID
-        if nil_position > last_qid_position:
-            return "NIL"
-
-        return qids[-1]
+        return 'NIL'
 
     async def estimate_total_rows(self):
         # Get the size of the file in bytes
