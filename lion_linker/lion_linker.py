@@ -35,7 +35,7 @@ class LionLinker:
         - ANSWER:Q42
         - ANSWER:NIL
     """
-    
+
     def __init__(
         self,
         input_csv: str | Path,
@@ -237,38 +237,22 @@ class LionLinker:
 
     def extract_identifier_from_response(self, response):
         """
-        Extracts the last QID from the response, or 'NIL' if NIL appears after the last QID.
-        Returns 'No Identifier' if neither QID nor NIL is present.
+        Extracts the identifier from a response using the format 'ANSWER: {QID}' or 'ANSWER:NIL'.
+        Returns 'No Identifier' if the format is not found.
 
         Parameters:
         response (str): The response text to extract from.
 
         Returns:
-        str: The last QID, 'NIL' if 'NIL' appears after the last QID,
-        or 'No Identifier' if neither is found.
+        str: The extracted QID (e.g., 'Q42'), 'NIL', or 'No Identifier'.
         """
-        # Find all QIDs in the response (assuming QIDs start with 'Q' followed by digits)
-        qids = re.findall(r"Q\d+", response)
+        # Look for all matches with optional whitespace after 'ANSWER:'
+        matches = re.findall(r"ANSWER:\s*(Q\d+|NIL)", response, re.IGNORECASE)
 
-        # Check if 'NIL' appears in the response
-        nil_position = response.rfind("NIL")
+        if matches:
+            return matches[-1]  # Return the last match found
 
-        # If there are no QIDs and no NIL, return 'No Identifier'
-        if not qids and nil_position == -1:
-            return "No Identifier"
-
-        # If there are no QIDs but NIL is present, return 'NIL'
-        if not qids:
-            return "NIL"
-
-        # Find the position of the last QID in the response
-        last_qid_position = response.rfind(qids[-1])
-
-        # Return 'NIL' if it appears after the last QID, otherwise return the last QID
-        if nil_position > last_qid_position:
-            return "NIL"
-
-        return qids[-1]
+        return "No Identifier"
 
     async def estimate_total_rows(self):
         # Get the size of the file in bytes
