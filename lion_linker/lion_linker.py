@@ -19,10 +19,21 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 class LionLinker:
     DEFAULT_ANSWER_FORMAT = """
-        Identify the correct identifier (id) for
-        the entity mention from the candidates listed above.
-        Provide only the id or NIL if none of the candidates is correct.
-        No additional text is required.
+        Identify the correct identifier (QID) for the entity mention from the list of candidates above.
+
+        Respond using the following format, and nothing else:
+
+        ANSWER:{QID}
+
+        Instructions:
+        - Replace {QID} with the actual identifier, for example: ANSWER:Q42
+        - If none of the candidates is correct, respond with: ANSWER:NIL
+        - Do not add any explanations, extra text, or formatting.
+        - The output must be exactly one line and must start with 'ANSWER:'
+
+        Examples:
+        - ANSWER:Q42
+        - ANSWER:NIL
     """
 
     def __init__(
@@ -226,38 +237,22 @@ class LionLinker:
 
     def extract_identifier_from_response(self, response):
         """
-        Extracts the last QID from the response, or 'NIL' if NIL appears after the last QID.
-        Returns 'No Identifier' if neither QID nor NIL is present.
+        Extracts the identifier from a response using the format 'ANSWER: {QID}' or 'ANSWER:NIL'.
+        Returns 'No Identifier' if the format is not found.
 
         Parameters:
         response (str): The response text to extract from.
 
         Returns:
-        str: The last QID, 'NIL' if 'NIL' appears after the last QID,
-        or 'No Identifier' if neither is found.
+        str: The extracted QID (e.g., 'Q42'), 'NIL', or 'No Identifier'.
         """
-        # Find all QIDs in the response (assuming QIDs start with 'Q' followed by digits)
-        qids = re.findall(r"Q\d+", response)
+        # Look for all matches with optional whitespace after 'ANSWER:'
+        matches = re.findall(r"ANSWER:\s*(Q\d+|NIL)", response, re.IGNORECASE)
 
-        # Check if 'NIL' appears in the response
-        nil_position = response.rfind("NIL")
+        if matches:
+            return matches[-1]  # Return the last match found
 
-        # If there are no QIDs and no NIL, return 'No Identifier'
-        if not qids and nil_position == -1:
-            return "No Identifier"
-
-        # If there are no QIDs but NIL is present, return 'NIL'
-        if not qids:
-            return "NIL"
-
-        # Find the position of the last QID in the response
-        last_qid_position = response.rfind(qids[-1])
-
-        # Return 'NIL' if it appears after the last QID, otherwise return the last QID
-        if nil_position > last_qid_position:
-            return "NIL"
-
-        return qids[-1]
+        return "No Identifier"
 
     async def estimate_total_rows(self):
         # Get the size of the file in bytes
