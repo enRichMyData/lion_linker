@@ -19,12 +19,23 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 class LionLinker:
     DEFAULT_ANSWER_FORMAT = """
-        Identify the correct identifier (id) for
-        the entity mention from the candidates listed above.
-        Provide only the id or NIL if none of the candidates is correct.
-        No additional text is required.
-    """
+        Identify the correct identifier (QID) for the entity mention from the list of candidates above.
 
+        Respond using the following format, and nothing else:
+
+        ANSWER:{QID}
+
+        Instructions:
+        - Replace {QID} with the actual identifier, for example: ANSWER:Q42
+        - If none of the candidates is correct, respond with: ANSWER:NIL
+        - Do not add any explanations, extra text, or formatting.
+        - The output must be exactly one line and must start with 'ANSWER:'
+
+        Examples:
+        - ANSWER:Q42
+        - ANSWER:NIL
+    """
+    
     def __init__(
         self,
         input_csv: str | Path,
