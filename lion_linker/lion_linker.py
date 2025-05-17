@@ -220,7 +220,11 @@ class LionLinker:
                 f"{base_filename}-{id_row}-{id_col}"
 
                 # Call LLM for each prompt individually
-                response = self.llm_interaction.chat(prompt)
+                try:
+                    response = self.llm_interaction.chat(prompt)
+                except Exception as e:
+                    logging.error(f"LLM interaction failed for mention '{entity_mention}': {e}")
+                    response = "ANSWER:NIL"  # fallback or you could raise if preferred
 
                 # Extract identifier from response
                 extracted_identifier = self.extract_identifier_from_response(response)
@@ -363,6 +367,7 @@ class LionLinker:
                 [entity_mention], **kwargs
             )
             candidates = candidates_dict.get(entity_mention, [])
+            print(f"Candidates for {entity_mention}: {len(candidates)}")
             prompt = self.prompt_generator.generate_prompt(
                 table=table_list,
                 table_metadata=None,
