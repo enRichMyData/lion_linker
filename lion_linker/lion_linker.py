@@ -367,7 +367,6 @@ class LionLinker:
                 [entity_mention], **kwargs
             )
             candidates = candidates_dict.get(entity_mention, [])
-            print(f"Candidates for {entity_mention}: {len(candidates)}")
             prompt = self.prompt_generator.generate_prompt(
                 table=table_list,
                 table_metadata=None,
