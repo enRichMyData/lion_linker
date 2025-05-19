@@ -3,6 +3,8 @@ import json
 import urllib.parse
 
 import aiohttp
+import logging
+logger = logging.getLogger(__name__)
 
 
 class RetrieverClient:
@@ -47,6 +49,7 @@ class RetrieverClient:
             output = {}
             for mention, result in zip(mentions, results):
                 if isinstance(result, Exception):
+                    logger.warning(f"[RetrieverClient] Failed to retrieve candidates for mention '{mention}': {repr(result)}")
                     output[mention] = []
                 else:
                     output[mention] = result
