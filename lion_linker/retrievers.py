@@ -47,7 +47,7 @@ class RetrieverClient:
             output = {}
             for mention, result in zip(mentions, results):
                 if isinstance(result, Exception):
-                    output[mention] = f"Error: {str(result)}"
+                    output[mention] = []
                 else:
                     output[mention] = result
             return output
