@@ -146,8 +146,8 @@ class LionLinker:
             self.model_name, self.model_api_provider, self.ollama_host, self.model_api_key
         )
 
-        logging.info("Pulling model if necessary...")
-        self.llm_interaction.ollama_client.pull(self.model_name)
+        #logging.info("Pulling model if necessary...")
+        #self.llm_interaction.ollama_client.pull(self.model_name)
 
         logging.info("Setup completed.")
         self.table_summary = None  # Placeholder for the table summary
