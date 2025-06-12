@@ -19,20 +19,22 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 class LionLinker:
     DEFAULT_ANSWER_FORMAT = """
-        Identify the correct identifier (QID) for the entity mention from the list of candidates above.
+        Identify the correct identifier (ID) for the entity mention from the list of candidates above.
 
         Respond using the following format, and nothing else:
 
-        ANSWER:{QID}
+        ANSWER:{ID}
 
         Instructions:
-        - Replace {QID} with the actual identifier, for example: ANSWER:Q42
+        - Replace {ID} with the actual identifier (e.g., Q42 for Wikidata, apple-234abc for Crunchbase, or dbo:Apple for DBpedia)
         - If none of the candidates is correct, respond with: ANSWER:NIL
         - Do not add any explanations, extra text, or formatting.
         - The output must be exactly one line and must start with 'ANSWER:'
 
         Examples:
         - ANSWER:Q42
+        - ANSWER:apple-234abc
+        - ANSWER:dbo:Apple
         - ANSWER:NIL
     """
 
@@ -154,6 +156,10 @@ class LionLinker:
 
         # Hidden parameter for mention to QID mapping
         self._mention_to_qids = kwargs.get("mention_to_qids", {})
+        self.id_extraction_pattern = kwargs.get("id_extraction_pattern", r"ANSWER:\s*([^\s]+)")
+        self.prediction_suffix = kwargs.get("prediction_suffix", "_pred_id")
+        self.kg_name = kwargs.get("kg_name", "generic")
+        logging.info(f"Knowledge graph: {self.kg_name}")
 
     def generate_table_summary(self, sample_data):
         # Exclude GT columns for testing
@@ -233,7 +239,7 @@ class LionLinker:
                     {
                         "id_row": id_row,
                         f"{column}_llm_answer": " ".join(response.split()),
-                        f"{column}_qid": extracted_identifier,
+                        f"{column}{self.prediction_suffix}": extracted_identifier
                     }
                 )
 
