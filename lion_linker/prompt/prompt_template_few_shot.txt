@@ -1,18 +1,27 @@
-This is an entity linking task. The goal for this task is to link the selected entity mention in the table cells to the entity in the knowledge base. You will be given a list of referent entities: please choose the correct one from the referent entity candidates or answer 'NIL' if no one is correct.
+This is an entity linking task. Your goal is to identify which entity in the knowledge base corresponds to a given mention in a table. 
 
-Example of entity linking tasks: [EXAMPLES]
+Here are some examples of completed entity linking tasks:
+[EXAMPLES]
 
-Here is the table data surrounding the mention:
+Now, apply the same approach to the following case:
+
+- **Table data around the mention**:
 [TABLE]
 
-Here are additional information regarding the table: [TABLE METADATA]
+- **Table metadata**:
+[TABLE METADATA]
 
-Here is the summary of the table: [SUMMARY]
+- **Table summary**:
+[SUMMARY]
 
-The column name in question is: [COLUMN NAME]
+- **Column name**:
+[COLUMN NAME]
 
-The entity mention to be linked is: [ENTITY MENTION]
+- **Entity mention**:
+[ENTITY MENTION]
 
-Possible candidates for the entity are: [CANDIDATES]
+- **Candidate entities**:
+[CANDIDATES]
 
+Please respond using the format below:
 [ANSWER_FORMAT]
