@@ -248,14 +248,16 @@ class LionLinker:
 
     def extract_identifier_from_response(self, response):
         """
-        Extracts the identifier from a response using the format 'ANSWER: {QID}' or 'ANSWER:NIL'.
-        Returns 'No Identifier' if the format is not found.
+        Extracts the identifier from a response using the compiled answer pattern.
+        Supports arbitrary ID formats such as Wikidata IDs (e.g., Q42), Crunchbase slugs (e.g., apple-234abc),
+        DBpedia IRIs (e.g., dbo:Apple), or NIL.
 
         Parameters:
-        response (str): The response text to extract from.
+            response (str): The model's response text.
 
         Returns:
-        str: The extracted QID (e.g., 'Q42'), 'NIL', or 'No Identifier'.
+            str: The extracted identifier (e.g., 'Q42', 'apple-234abc', 'dbo:Apple') or 'NIL',
+                or 'No Identifier' if no valid match is found.
         """
         # Look for all matches with optional whitespace after 'ANSWER:'
         matches = self._compiled_id_pattern.findall(response)
