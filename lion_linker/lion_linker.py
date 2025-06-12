@@ -156,7 +156,8 @@ class LionLinker:
 
         # Hidden parameter for mention to QID mapping
         self._mention_to_qids = kwargs.get("mention_to_qids", {})
-        self.id_extraction_pattern = kwargs.get("id_extraction_pattern", r"ANSWER:\s*([^\s]+)")
+        pattern_str = kwargs.get("id_extraction_pattern", r"ANSWER:\s*([^\s]+)")
+        self._compiled_id_pattern = re.compile(pattern_str, re.IGNORECASE)
         self.prediction_suffix = kwargs.get("prediction_suffix", "_pred_id")
         self.kg_name = kwargs.get("kg_name", "generic")
         logging.info(f"Knowledge graph: {self.kg_name}")
@@ -257,7 +258,7 @@ class LionLinker:
         str: The extracted QID (e.g., 'Q42'), 'NIL', or 'No Identifier'.
         """
         # Look for all matches with optional whitespace after 'ANSWER:'
-        matches = re.findall(r"ANSWER:\s*(Q\d+|NIL)", response, re.IGNORECASE)
+        matches = self._compiled_id_pattern.findall(response)
 
         if matches:
             return matches[-1]  # Return the last match found
