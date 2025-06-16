@@ -4,7 +4,7 @@ Use the context below to make your decision:
 
 1. Understand the mention in its column using:
    - Table data
-   - Table metadata (if available)
+   - Table metadata 
    - Table summary
 
 2. Compare the mention with the candidate entities.

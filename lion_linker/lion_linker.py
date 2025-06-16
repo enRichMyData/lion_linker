@@ -26,7 +26,7 @@ class LionLinker:
         ANSWER:{ID}
 
         Instructions:
-        - Replace {ID} with the actual identifier (e.g., Q42 for Wikidata, apple-234abc for Crunchbase, or dbo:Apple for DBpedia)
+        - Replace {ID} with the actual identifier (e.g., Q42 for Wikidata, apple-234abc for Crunchbase, or Apple for DBpedia)
         - If none of the candidates is correct, respond with: ANSWER:NIL
         - Do not add any explanations, extra text, or formatting.
         - The output must be exactly one line and must start with 'ANSWER:'
@@ -34,7 +34,7 @@ class LionLinker:
         Examples:
         - ANSWER:Q42
         - ANSWER:apple-234abc
-        - ANSWER:dbo:Apple
+        - ANSWER:Apple
         - ANSWER:NIL
     """
 
@@ -256,7 +256,7 @@ class LionLinker:
             response (str): The model's response text.
 
         Returns:
-            str: The extracted identifier (e.g., 'Q42', 'apple-234abc', 'dbo:Apple') or 'NIL',
+            str: The extracted identifier (e.g., 'Q42', 'apple-234abc', 'Apple') or 'NIL',
                 or 'No Identifier' if no valid match is found.
         """
         # Look for all matches with optional whitespace after 'ANSWER:'
