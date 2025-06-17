@@ -26,7 +26,7 @@ class LionLinker:
         ANSWER:{ID}
 
         Instructions:
-        - Replace {ID} with the actual identifier (e.g., Q42 for Wikidata, apple-234abc for Crunchbase, or Apple for DBpedia)
+        - Replace {ID} with the actual identifier (e.g., Q42, apple-234abc or Apple)
         - If none of the candidates is correct, respond with: ANSWER:NIL
         - Do not add any explanations, extra text, or formatting.
         - The output must be exactly one line and must start with 'ANSWER:'
