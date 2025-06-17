@@ -20,5 +20,5 @@ You are provided with the following context:
 - **Candidate entities**:
 [CANDIDATES]
 
-Please respond following this format:
+Please follow the response format below:
 [ANSWER_FORMAT]

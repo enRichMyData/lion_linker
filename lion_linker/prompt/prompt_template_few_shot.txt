@@ -23,5 +23,5 @@ Now, apply the same approach to the following case:
 - **Candidate entities**:
 [CANDIDATES]
 
-Please respond using the format below:
+Please follow the response format below
 [ANSWER_FORMAT]
