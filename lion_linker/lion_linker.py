@@ -191,12 +191,20 @@ class LionLinker:
             kwargs["mention_to_qids"] = self._mention_to_qids
 
         mentions_to_candidates = await self.retriever.fetch_multiple_entities(mentions, **kwargs)
-        results = []
+        
+        # Group results by row ID
+        results_by_row = {}
+        
         for loc_idx, (id_row, row) in enumerate(chunk.iterrows()):
             table_view = chunk.iloc[
                 max(0, loc_idx - self.table_ctx_size) : loc_idx + self.table_ctx_size + 1
             ]
             table_list = [table_view.columns.tolist()] + table_view.values.tolist()
+            
+            # Initialize row result if not exists
+            if id_row not in results_by_row:
+                results_by_row[id_row] = {"id_row": id_row}
+            
             for column in self.mention_columns:
                 entity_mention = row[column]
                 candidates = mentions_to_candidates.get(entity_mention, [])
@@ -229,14 +237,12 @@ class LionLinker:
                 # Extract identifier from response
                 extracted_identifier = self.extract_identifier_from_response(response)
 
-                results.append(
-                    {
-                        "id_row": id_row,
-                        f"{column}_llm_answer": " ".join(response.split()),
-                        f"{column}_qid": extracted_identifier,
-                    }
-                )
+                # Add column-specific results to the row
+                results_by_row[id_row][f"{column}_llm_answer"] = " ".join(response.split())
+                results_by_row[id_row][f"{column}_pred_id"] = extracted_identifier
 
+        # Convert to list of dictionaries
+        results = list(results_by_row.values())
         return results
 
     def extract_identifier_from_response(self, response):
