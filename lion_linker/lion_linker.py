@@ -19,20 +19,22 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 class LionLinker:
     DEFAULT_ANSWER_FORMAT = """
-        Identify the correct identifier (QID) for the entity mention from the list of candidates above.
+        Identify the correct identifier (ID) for the entity mention from the list of candidates above.
 
         Respond using the following format, and nothing else:
 
-        ANSWER:{QID}
+        ANSWER:{ID}
 
         Instructions:
-        - Replace {QID} with the actual identifier, for example: ANSWER:Q42
+        - Replace {ID} with the actual identifier (e.g., Q42, apple-234abc or Apple)
         - If none of the candidates is correct, respond with: ANSWER:NIL
         - Do not add any explanations, extra text, or formatting.
         - The output must be exactly one line and must start with 'ANSWER:'
 
         Examples:
         - ANSWER:Q42
+        - ANSWER:apple-234abc
+        - ANSWER:Apple
         - ANSWER:NIL
     """
 
@@ -97,7 +99,10 @@ class LionLinker:
                 Defaults to None.
             **kwargs: Additional keyword arguments.
                       Supported hidden features:
-                      - mention_to_qids: Dict mapping mentions to QIDs to force in candidates
+                      - mention_to_qids: Dict mapping mentions to entity IDs to force in candidates
+                      - id_extraction_pattern: Regex pattern for extracting IDs from responses
+                      - prediction_suffix: Suffix for prediction column names
+                      - kg_name: Name of the knowledge graph being used
         """
 
         if not os.path.exists(input_csv) or os.path.splitext(input_csv)[1] != ".csv":
@@ -152,8 +157,13 @@ class LionLinker:
         logging.info("Setup completed.")
         self.table_summary = None  # Placeholder for the table summary
 
-        # Hidden parameter for mention to QID mapping
+        # Hidden parameter for mention to entity ID mapping
         self._mention_to_qids = kwargs.get("mention_to_qids", {})
+        pattern_str = kwargs.get("id_extraction_pattern", r"ANSWER:\s*([^\s]+)")
+        self._compiled_id_pattern = re.compile(pattern_str, re.IGNORECASE)
+        self.prediction_suffix = kwargs.get("prediction_suffix", "_pred_id")
+        self.kg_name = kwargs.get("kg_name", "generic")
+        logging.info(f"Knowledge graph: {self.kg_name}")
 
     def generate_table_summary(self, sample_data):
         # Exclude GT columns for testing
@@ -239,7 +249,7 @@ class LionLinker:
 
                 # Add column-specific results to the row
                 results_by_row[id_row][f"{column}_llm_answer"] = " ".join(response.split())
-                results_by_row[id_row][f"{column}_pred_id"] = extracted_identifier
+                results_by_row[id_row][f"{column}{self.prediction_suffix}"] = extracted_identifier
 
         # Convert to list of dictionaries
         results = list(results_by_row.values())
@@ -247,17 +257,19 @@ class LionLinker:
 
     def extract_identifier_from_response(self, response):
         """
-        Extracts the identifier from a response using the format 'ANSWER: {QID}' or 'ANSWER:NIL'.
-        Returns 'No Identifier' if the format is not found.
+        Extracts the identifier from a response using the compiled answer pattern.
+        Supports arbitrary ID formats such as Wikidata IDs (e.g., Q42), Crunchbase slugs (e.g., apple-234abc),
+        DBpedia IRIs (e.g., dbo:Apple), or NIL.
 
         Parameters:
-        response (str): The response text to extract from.
+            response (str): The model's response text.
 
         Returns:
-        str: The extracted QID (e.g., 'Q42'), 'NIL', or 'No Identifier'.
+            str: The extracted identifier (e.g., 'Q42', 'apple-234abc', 'Apple') or 'NIL',
+                or 'No Identifier' if no valid match is found.
         """
         # Look for all matches with optional whitespace after 'ANSWER:'
-        matches = re.findall(r"ANSWER:\s*(Q\d+|NIL)", response, re.IGNORECASE)
+        matches = self._compiled_id_pattern.findall(response)
 
         if matches:
             return matches[-1]  # Return the last match found
