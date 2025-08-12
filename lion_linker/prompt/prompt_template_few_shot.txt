@@ -1,27 +1,37 @@
-This is an entity linking task. Your goal is to identify which entity in the knowledge base corresponds to a given mention in a table. 
+This is an entity linking task. Your goal is to identify which entity in the knowledge base corresponds to a given mention in a table.
 
 Here are some examples of completed entity linking tasks:
 [EXAMPLES]
 
-Now, apply the same approach to the following case:
+Follow the same reasoning process as described below and replicate the output structure shown in the examples.  
+Choose the best-matching entity only from the provided candidates.  
+If none match, state this explicitly.
 
-- **Table data around the mention**:
+Steps to follow:
+
+1. Interpret the mention using the provided table data, metadata, and summary.
+2. Compare this interpretation with all provided details of each candidate (including labels, aliases, and descriptions if present).
+3. Select the single entity ID from the candidates that best matches. If no candidate matches, indicate this explicitly.
+
+Context:
+
+- Table data around the mention:
 [TABLE]
 
-- **Table metadata**:
+- Table metadata:
 [TABLE METADATA]
 
-- **Table summary**:
+- Table summary:
 [SUMMARY]
 
-- **Column name**:
+- Column name:
 [COLUMN NAME]
 
-- **Entity mention**:
+- Entity mention:
 [ENTITY MENTION]
 
-- **Candidate entities**:
+- Candidate entities:
 [CANDIDATES]
 
-Please follow the response format below
+Please follow the response format below:
 [ANSWER_FORMAT]

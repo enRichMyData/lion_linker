@@ -2,23 +2,26 @@ This is an entity linking task. Your goal is to identify which entity in the kno
 
 You are provided with the following context:
 
-- **Table data around the mention**:
+- Table data around the mention:
 [TABLE]
 
-- **Table metadata**:
+- Table metadata:
 [TABLE METADATA]
 
-- **Summary of the table**:
+- Summary of the table:
 [SUMMARY]
 
-- **Column name**:
+- Column name:
 [COLUMN NAME]
 
-- **Entity mention**:
+- Entity mention:
 [ENTITY MENTION]
 
-- **Candidate entities**:
+- Candidate entities:
 [CANDIDATES]
+
+Use all the context above to choose the single best-matching entity from [CANDIDATES].  
+If no match exists, respond accordingly.
 
 Please follow the response format below:
 [ANSWER_FORMAT]
