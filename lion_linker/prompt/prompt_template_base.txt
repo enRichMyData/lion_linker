@@ -1,27 +1,21 @@
-This is an entity linking task. Your goal is to identify which entity in the knowledge base corresponds to the mention found in a table cell.
+This is an entity linking task. Your goal is to identify which entity in the knowledge base matches the mention in a table cell.
 
-You are provided with the following context:
+Context:
 
 - Table data around the mention:
 [TABLE]
-
 - Table metadata:
 [TABLE METADATA]
-
-- Summary of the table:
+- Table summary:
 [SUMMARY]
-
 - Column name:
 [COLUMN NAME]
-
 - Entity mention:
 [ENTITY MENTION]
-
 - Candidate entities:
 [CANDIDATES]
 
-Use all the context above to choose the single best-matching entity from [CANDIDATES].  
-If no match exists, respond accordingly.
+Choose the single best match from the candidates.  
+If none match, say so.
 
-Please follow the response format below:
 [ANSWER_FORMAT]

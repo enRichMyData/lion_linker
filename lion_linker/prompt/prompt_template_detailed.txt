@@ -1,30 +1,23 @@
-You are an entity linking system. Your task is to determine which entity from the candidate list corresponds to the highlighted mention in the table.
+You are an entity linking system. Identify which candidate matches the mention, using the provided table data, metadata, and summary.
 
-Follow these steps:
-
-1. Interpret the mention using the provided table data, metadata, and summary.
-2. Compare this interpretation with all provided details of each candidate (including labels, aliases, and descriptions if present).
-3. Select the single entity ID from the candidates that best matches. If no candidate matches, indicate this explicitly.
+Steps:
+1. Understand the mention in context.
+2. Compare it to all candidate details (labels, aliases, descriptions).
+3. Select one matching ID, or state no match.
 
 Context:
 
 - Table data around the mention:
 [TABLE]
-
 - Table metadata:
 [TABLE METADATA]
-
 - Table summary:
 [SUMMARY]
-
 - Column name:
 [COLUMN NAME]
-
 - Entity mention:
 [ENTITY MENTION]
-
 - Candidate entities:
 [CANDIDATES]
 
-Please follow the response format below:
 [ANSWER_FORMAT]
