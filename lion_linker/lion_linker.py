@@ -11,7 +11,7 @@ from lion_linker.core import LLMInteraction
 from lion_linker.prompt.generator import PromptGenerator
 from lion_linker.retrievers import RetrieverClient
 
-DEFAULT_PROMPT_FILE_PATH = os.path.join(PROJECT_ROOT, "prompt", "prompt_template.txt")
+DEFAULT_PROMPT_FILE_PATH = os.path.join(PROJECT_ROOT, "prompt", "prompt_template_base.txt")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -82,10 +82,12 @@ class LionLinker:
                 This is only used if `format_candidates` is False.
                 Defaults to True.
             model_api_provider (str, optional): The provider for the model API.
+                Supported providers: "ollama", "openai", "groq", "huggingface".
                 Defaults to "ollama".
             ollama_host (str, optional): The host for the Ollama service.
                 Defaults to None.
             model_api_key (str, optional): The API key for the model service.
+                Required for "openai" and "groq" providers.
                 Defaults to None.
             few_shot_examples_file_path (str, optional): The file path to
                 the few shot examples file.
