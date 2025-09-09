@@ -1,7 +1,7 @@
 import ollama
 import openai
-from groq import Groq
 import torch
+from groq import Groq
 
 
 class LLMInteraction:
@@ -21,17 +21,60 @@ class LLMInteraction:
     def _init_huggingface(self):
         """Initialize Hugging Face tokenizer and model."""
         try:
-            from transformers import AutoTokenizer, AutoModelForCausalLM
-            import torch
+            import math
 
-            self.hf_tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=False)
-            self.hf_model: AutoModelForCausalLM = AutoModelForCausalLM.from_pretrained(
-                self.model_name, device_map="auto"
-            )
+            import transformers
+            from transformers import AutoModelForCausalLM, AutoTokenizer
 
-            # Add padding token if it doesn't exist
-            if self.hf_tokenizer.pad_token is None:
-                self.hf_tokenizer.pad_token = self.hf_tokenizer.eos_token
+            if self.model_name.startswith("osunlp"):
+                from lion_linker.utils import tablellama_forward_noflashattn
+
+                # Set RoPE scaling factor
+                context_size = 8192
+                config = transformers.AutoConfig.from_pretrained(
+                    self.model_name, attn_implementation="eager"
+                )
+
+                orig_ctx_len = getattr(config, "max_position_embeddings", None)
+                if orig_ctx_len and context_size > orig_ctx_len:
+                    scaling_factor = float(math.ceil(context_size / orig_ctx_len))
+                    config.rope_scaling = {"type": "linear", "factor": scaling_factor}
+
+                # Load model and tokenizer
+                transformers.models.llama.modeling_llama.LlamaAttention.forward = (
+                    tablellama_forward_noflashattn
+                )
+                self.hf_model = transformers.AutoModelForCausalLM.from_pretrained(
+                    self.model_name,
+                    config=config,
+                    torch_dtype=torch.bfloat16,
+                    device_map="auto",
+                )
+                self.hf_model.resize_token_embeddings(32001)
+
+                self.hf_tokenizer = transformers.AutoTokenizer.from_pretrained(
+                    self.model_name,
+                    model_max_length=(
+                        context_size if context_size > orig_ctx_len else orig_ctx_len
+                    ),
+                    padding_side="left",
+                    use_fast=False,
+                )
+            else:
+                self.hf_model = AutoModelForCausalLM.from_pretrained(
+                    self.model_name,
+                    device_map="auto",
+                    trust_remote_code=True,
+                )
+
+                # Tokenizer with optimized settings
+                self.hf_tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_name,
+                    padding_side="left",
+                    use_fast=True,  # Enable rust tokenizer
+                    truncation_side="left",
+                    trust_remote_code=True,
+                )
 
         except ImportError:
             raise ImportError(
@@ -98,13 +141,18 @@ class LLMInteraction:
 
     def _chat_huggingface(self, message, *args, stream=False, **kwargs):
         """Chat using Hugging Face transformers."""
+        is_tablellama = "tablellama" in self.model_name.lower()
 
         # Format the message as a conversation
         formatted_message = f"{message}"
 
         # Tokenize the input
         inputs = self.hf_tokenizer(
-            formatted_message, return_tensors="pt", padding=True, truncation=True
+            formatted_message,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            pad_to_multiple_of=8 if is_tablellama else None,
         )
 
         # Move to GPU if available
@@ -112,8 +160,9 @@ class LLMInteraction:
             inputs = {k: v.cuda() for k, v in inputs.items()}
 
         default_kwargs = {
-            "max_new_tokens": 512,
-            "temperature": 0.7,
+            "max_new_tokens": 64,
+            "temperature": 0.6,
+            "top_p": 0.9,
             "do_sample": True,
             "use_cache": True,
             "pad_token_id": self.hf_tokenizer.eos_token_id,

@@ -105,6 +105,7 @@ class LionLinker:
                       - id_extraction_pattern: Regex pattern for extracting IDs from responses
                       - prediction_suffix: Suffix for prediction column names
                       - kg_name: Name of the knowledge graph being used
+                      - compute_table_summary: Whether to create table summary or not
         """
 
         if not os.path.exists(input_csv) or os.path.splitext(input_csv)[1] != ".csv":
@@ -127,7 +128,6 @@ class LionLinker:
         self.model_api_key = model_api_key
         self.few_shot_examples_file_path = few_shot_examples_file_path
         # Use a cleaned DEFAULT_ANSWER_FORMAT with extra spaces and newlines removed
-        self.answer_format = answer_format or " ".join(LionLinker.DEFAULT_ANSWER_FORMAT.split())
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
         self.table_ctx_size = table_ctx_size
         if self.table_ctx_size < 0:
@@ -143,28 +143,45 @@ class LionLinker:
                 f"Got batch size: {self.chunk_size}, table context size: {self.table_ctx_size}"
             )
 
-        logging.info("Initializing components...")
-        self.prompt_generator = PromptGenerator(
-            self.prompt_file_path, self.few_shot_examples_file_path
-        )
-
         logging.info(f"Model API provider is: {self.model_api_provider}")
         self.llm_interaction = LLMInteraction(
             self.model_name, self.model_api_provider, self.ollama_host, self.model_api_key
         )
 
-        #logging.info("Pulling model if necessary...")
-        #self.llm_interaction.ollama_client.pull(self.model_name)
+        # logging.info("Pulling model if necessary...")
+        # self.llm_interaction.ollama_client.pull(self.model_name)
 
         logging.info("Setup completed.")
-        self.table_summary = None  # Placeholder for the table summary
 
         # Hidden parameter for mention to entity ID mapping
         self._mention_to_qids = kwargs.get("mention_to_qids", {})
-        pattern_str = kwargs.get("id_extraction_pattern", r"ANSWER:\s*([^\s]+)")
-        self._compiled_id_pattern = re.compile(pattern_str, re.IGNORECASE)
         self.prediction_suffix = kwargs.get("prediction_suffix", "_pred_id")
         self.kg_name = kwargs.get("kg_name", "generic")
+
+        # TableLlama checks
+        if "osunlp" in model_name:
+            self.answer_format = ""
+            self.table_summary = ""
+            self.format_candidates = True
+            self.prompt_file_path = os.path.join(
+                PROJECT_ROOT, "prompt", "prompt_template_tablellama.txt"
+            )
+            pattern_str = kwargs.get("id_extraction_pattern", r"Q\d+")
+        else:
+            self.table_summary = None
+            self.answer_format = answer_format or " ".join(
+                LionLinker.DEFAULT_ANSWER_FORMAT.split()
+            )
+            pattern_str = kwargs.get("id_extraction_pattern", r"ANSWER:\s*([^\s]+)")
+
+        logging.info("Initializing components...")
+        self.prompt_generator = PromptGenerator(
+            self.prompt_file_path,
+            self.few_shot_examples_file_path,
+            tablellama_format="osunlp" in model_name,
+        )
+
+        self._compiled_id_pattern = re.compile(pattern_str, re.IGNORECASE)
         logging.info(f"Knowledge graph: {self.kg_name}")
 
     def generate_table_summary(self, sample_data):
@@ -203,20 +220,20 @@ class LionLinker:
             kwargs["mention_to_qids"] = self._mention_to_qids
 
         mentions_to_candidates = await self.retriever.fetch_multiple_entities(mentions, **kwargs)
-        
+
         # Group results by row ID
         results_by_row = {}
-        
+
         for loc_idx, (id_row, row) in enumerate(chunk.iterrows()):
             table_view = chunk.iloc[
                 max(0, loc_idx - self.table_ctx_size) : loc_idx + self.table_ctx_size + 1
             ]
             table_list = [table_view.columns.tolist()] + table_view.values.tolist()
-            
+
             # Initialize row result if not exists
             if id_row not in results_by_row:
                 results_by_row[id_row] = {"id_row": id_row}
-            
+
             for column in self.mention_columns:
                 entity_mention = row[column]
                 candidates = mentions_to_candidates.get(entity_mention, [])
@@ -247,7 +264,23 @@ class LionLinker:
                     response = "ANSWER:NIL"  # fallback or you could raise if preferred
 
                 # Extract identifier from response
-                extracted_identifier = self.extract_identifier_from_response(response)
+                if "osunlp" in self.model_name:
+                    candidates2qid = {
+                        (
+                            f"{candidate['name']} "
+                            f"[DESCRIPTION] {candidate['description'] if candidate['description'] is not None else 'None'} "
+                            f"[TYPE] {','.join([t['name'] for t in candidate['types'] if t['name'] is not None])}"
+                        ).lower(): candidate["id"]
+                        for candidate in candidates
+                    }
+                    if response is not None:
+                        response = response.lower()
+                        response = response.replace("<", "", 1)
+                        response = "".join(response.rsplit(">", 1))
+                        response = response.strip()
+                    extracted_identifier = candidates2qid.get(response, "No Identifier")
+                else:
+                    extracted_identifier = self.extract_identifier_from_response(response)
 
                 # Add column-specific results to the row
                 results_by_row[id_row][f"{column}_llm_answer"] = " ".join(response.split())
@@ -316,7 +349,8 @@ class LionLinker:
         if first_chunk is not None:
             # Sample a few rows from the first chunk
             sample_data = first_chunk.sample(min(5, len(first_chunk)))
-            self.table_summary = self.generate_table_summary(sample_data)
+            if self.table_summary is None:
+                self.table_summary = self.generate_table_summary(sample_data)
         else:
             raise ValueError("Not enough data to compute table summary")
 
@@ -432,7 +466,8 @@ class LionLinker:
         pbar = tqdm(total=estimated_total_rows, desc="Processing Batches")
 
         # Compute table summary with a sample from the first batch
-        await self.compute_table_summary()
+        if self.table_summary is None:
+            await self.compute_table_summary()
 
         # Track the actual number of rows processed
         actual_rows_processed = 0

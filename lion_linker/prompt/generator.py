@@ -5,9 +5,11 @@ import json
 
 
 class PromptGenerator:
-    def __init__(self, prompt_file, few_shot_examples_file_path=None):
+    def __init__(self, prompt_file, few_shot_examples_file_path=None, tablellama_format=False):
         with open(prompt_file, "r") as file:
             self.template = file.read()
+
+        self.tablellama_format = tablellama_format
 
         self.few_shot_examples = "N.A."
         if few_shot_examples_file_path is not None:
@@ -59,15 +61,25 @@ class PromptGenerator:
             optimized_candidates.append(optimized_candidate)
 
         if format_candidates:
-            candidates_text = ",".join(
-                [
-                    f"<id: {candidate['id']}; "
-                    f"name: {candidate['name']}; "
-                    f"description: {candidate['description'] if candidate['description'] is not None else 'N.A.'}; "  # noqa: E501
-                    f"types: {','.join([t['name'] for t in candidate['types'] if t['name'] is not None])}>"  # noqa: E501
-                    for candidate in optimized_candidates
-                ]
-            )
+            if not self.tablellama_format:
+                candidates_text = ",".join(
+                    [
+                        f"<id: {candidate['id']}; "
+                        f"name: {candidate['name']}; "
+                        f"description: {candidate['description'] if candidate['description'] is not None else 'N.A.'}; "  # noqa: E501
+                        f"types: {','.join([t['name'] for t in candidate['types'] if t['name'] is not None])}>"  # noqa: E501
+                        for candidate in optimized_candidates
+                    ]
+                )
+            else:
+                candidates_text = ",".join(
+                    [
+                        f"<{candidate['name']} "
+                        f"[DESCRIPTION] {candidate['description'] if candidate['description'] is not None else 'None'} "  # noqa: E501
+                        f"[TYPE] {','.join([t['name'] for t in candidate['types'] if t['name'] is not None])}>"  # noqa: E501
+                        for candidate in optimized_candidates
+                    ]
+                )
         else:
             if compact:
                 # Convert optimized candidates list to a compact JSON string
