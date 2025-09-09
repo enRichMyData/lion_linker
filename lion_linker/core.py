@@ -1,6 +1,7 @@
 import ollama
 import openai
 from groq import Groq
+import torch
 
 
 class LLMInteraction:
@@ -12,7 +13,7 @@ class LLMInteraction:
             self.ollama_client = ollama.Client(ollama_host)
         else:
             self.ollama_client = ollama.Client()  # Default Ollama host will be used
-        
+
         # Initialize Hugging Face components if needed
         if self.model_api_provider == "huggingface":
             self._init_huggingface()
@@ -22,38 +23,36 @@ class LLMInteraction:
         try:
             from transformers import AutoTokenizer, AutoModelForCausalLM
             import torch
-            
-            self.hf_tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self.hf_model = AutoModelForCausalLM.from_pretrained(
-                self.model_name,
-                dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                device_map="auto" if torch.cuda.is_available() else None,
+
+            self.hf_tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=False)
+            self.hf_model: AutoModelForCausalLM = AutoModelForCausalLM.from_pretrained(
+                self.model_name, device_map="auto"
             )
-            
+
             # Add padding token if it doesn't exist
             if self.hf_tokenizer.pad_token is None:
                 self.hf_tokenizer.pad_token = self.hf_tokenizer.eos_token
-                
+
         except ImportError:
             raise ImportError(
                 "Hugging Face transformers and torch are required for huggingface provider. "
                 "Install with: pip install transformers torch"
             )
 
-    def chat(self, message, stream=True):
+    def chat(self, message, *args, stream=True, **kwargs):
         if self.model_api_provider == "ollama":
-            return self._chat_ollama(message, stream)
+            return self._chat_ollama(message, *args, stream=stream, **kwargs)
         elif self.model_api_provider == "openai":
             self.model_api_key
-            return self._chat_openai(message, stream)
+            return self._chat_openai(message, *args, stream=stream, **kwargs)
         elif self.model_api_provider == "groq":
-            return self._chat_groq(message, stream)
+            return self._chat_groq(message, *args, stream=stream, **kwargs)
         elif self.model_api_provider == "huggingface":
-            return self._chat_huggingface(message)
+            return self._chat_huggingface(message, *args, stream=stream, **kwargs)
         else:
             raise ValueError(f"Unsupported API provider: {self.model_api_provider}")
 
-    def _chat_ollama(self, message, stream):
+    def _chat_ollama(self, message, *args, stream=False, **kwargs):
         print(f"Using Ollama model: {self.model_name}")
         response = self.ollama_client.chat(
             model=self.model_name,
@@ -61,7 +60,7 @@ class LLMInteraction:
         )
         return response["message"]["content"]
 
-    def _chat_openai(self, message, stream):
+    def _chat_openai(self, message, *args, stream=False, **kwargs):
         # Set the API key directly
         openai.api_key = self.model_api_key
 
@@ -97,41 +96,40 @@ class LLMInteraction:
         result = chat_completion.choices[0].message.content
         return result
 
-    def _chat_huggingface(self, message):
+    def _chat_huggingface(self, message, *args, stream=False, **kwargs):
         """Chat using Hugging Face transformers."""
-        import torch
-        
+
         # Format the message as a conversation
-        formatted_message = f"<|user|>\n{message}\n<|assistant|>\n"
-        
+        formatted_message = f"{message}"
+
         # Tokenize the input
         inputs = self.hf_tokenizer(
-            formatted_message,
-            return_tensors="pt",
-            padding=True,
-            truncation=True,
-            max_length=2048
+            formatted_message, return_tensors="pt", padding=True, truncation=True
         )
-        
+
         # Move to GPU if available
         if torch.cuda.is_available():
             inputs = {k: v.cuda() for k, v in inputs.items()}
-        
+
+        default_kwargs = {
+            "max_new_tokens": 512,
+            "temperature": 0.7,
+            "do_sample": True,
+            "use_cache": True,
+            "pad_token_id": self.hf_tokenizer.eos_token_id,
+            "eos_token_id": self.hf_tokenizer.eos_token_id,
+        }
+        for default_k, default_v in default_kwargs.items():
+            if default_k not in kwargs:
+                kwargs[default_k] = default_v
+
         # Generate response
         with torch.no_grad():
-            outputs = self.hf_model.generate(
-                **inputs,
-                max_new_tokens=512,
-                temperature=0.7,
-                do_sample=True,
-                pad_token_id=self.hf_tokenizer.eos_token_id,
-                eos_token_id=self.hf_tokenizer.eos_token_id
-            )
-        
+            outputs = self.hf_model.generate(**inputs, **kwargs)
+
         # Decode the response
         response = self.hf_tokenizer.decode(
-            outputs[0][inputs['input_ids'].shape[1]:],
-            skip_special_tokens=True
+            outputs[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True
         )
-        
+
         return response.strip()

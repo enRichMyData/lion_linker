@@ -11,7 +11,7 @@ authors = [
 ]
 urls = {Homepage = "https://github.com/roby-avo/lion_linker"}
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 
 classifiers = [
@@ -31,12 +31,6 @@ dependencies = [
     "groq==0.12.0",
     "python-dotenv==1.0.1",
     "jsonargparse==4.37.0",
-    "transformers==4.56.0",
-    "torch==2.8.0",
-    "accelerate==1.10.1",
-    "tiktoken==0.11.0",
-    "blobfile==3.0.0",
-
 ]
 
 [project.optional-dependencies]
@@ -46,10 +40,15 @@ app = [
     "uvicorn==0.34",
 ]
 dev = [
-    "flake8==4.0.1",
-    "black==21.12b0",
-    "isort==5.10.2",
-    "mypy==0.910",
+    "flake8",
+    "black",
+    "isort",
+    "mypy",
+]
+tablellama = [
+    "transformers==4.36.0",
+    "protobuf==6.32.0",
+    "sentencepiece==0.2.1",
 ]
 
 [tool.setuptools.packages.find]
