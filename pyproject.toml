@@ -45,6 +45,9 @@ dev = [
     "isort",
     "mypy",
 ]
+huggingface = [
+    "transformers"
+]
 tablellama = [
     "transformers==4.36.0",
     "protobuf==6.32.0",
