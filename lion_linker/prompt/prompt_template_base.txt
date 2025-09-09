@@ -15,7 +15,7 @@ Context:
 - Candidate entities:
 [CANDIDATES]
 
-Choose the single best match from the candidates.  
+Choose the single best match from the candidates.
 If none match, say so.
 
 [ANSWER_FORMAT]

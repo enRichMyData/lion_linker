@@ -270,7 +270,9 @@ class LionLinker:
                             f"{candidate['name']} "
                             f"[DESCRIPTION] {candidate['description'] if candidate['description'] is not None else 'None'} "
                             f"[TYPE] {','.join([t['name'] for t in candidate['types'] if t['name'] is not None])}"
-                        ).lower(): candidate["id"]
+                        )
+                        .lower()
+                        .strip(): candidate["id"]
                         for candidate in candidates
                     }
                     if response is not None:

@@ -17,7 +17,18 @@ class PromptGenerator:
                 self.few_shot_examples = file.read()
 
     def _format_table(self, table: list[list[str]]) -> str:
-        return "\n".join(["|" + "|".join(map(str, row)) + "|" for row in table])
+        if self.tablellama_format:
+            table_str = ""
+            for row_idx, row in enumerate(table):
+                if row_idx == 0:
+                    table_str += "col: " + "| " + " | ".join(map(str, row)) + " |"
+                else:
+                    table_str += (
+                        f" [SEP] row {row_idx}: " + "| " + " | ".join(map(str, row)) + " |"
+                    )
+            return table_str
+        else:
+            return "\n".join(["|" + "|".join(map(str, row)) + "|" for row in table])
 
     def generate_prompt(
         self,

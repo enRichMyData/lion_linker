@@ -27,7 +27,7 @@ class LLMInteraction:
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
             if self.model_name.startswith("osunlp"):
-                from lion_linker.utils import tablellama_forward_noflashattn
+                pass
 
                 # Set RoPE scaling factor
                 context_size = 8192
@@ -41,9 +41,9 @@ class LLMInteraction:
                     config.rope_scaling = {"type": "linear", "factor": scaling_factor}
 
                 # Load model and tokenizer
-                transformers.models.llama.modeling_llama.LlamaAttention.forward = (
-                    tablellama_forward_noflashattn
-                )
+                # transformers.models.llama.modeling_llama.LlamaAttention.forward = (
+                #     tablellama_forward_noflashattn
+                # )
                 self.hf_model = transformers.AutoModelForCausalLM.from_pretrained(
                     self.model_name,
                     config=config,
@@ -160,13 +160,11 @@ class LLMInteraction:
             inputs = {k: v.cuda() for k, v in inputs.items()}
 
         default_kwargs = {
-            "max_new_tokens": 64,
+            "max_new_tokens": 512,
+            "do_sample": True,
             "temperature": 0.6,
             "top_p": 0.9,
-            "do_sample": True,
             "use_cache": True,
-            "pad_token_id": self.hf_tokenizer.eos_token_id,
-            "eos_token_id": self.hf_tokenizer.eos_token_id,
         }
         for default_k, default_v in default_kwargs.items():
             if default_k not in kwargs:
