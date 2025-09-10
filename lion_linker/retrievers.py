@@ -12,7 +12,7 @@ class RetrieverClient:
     def __init__(
         self,
         endpoint: str,
-        token: str = None,
+        token: str | None = None,
         parse_response_func=None,
         max_retries=3,
         backoff_factor=0.5,
@@ -51,7 +51,8 @@ class RetrieverClient:
             for mention, result in zip(mentions, results):
                 if isinstance(result, Exception):
                     logger.warning(
-                        f"[RetrieverClient] Failed to retrieve candidates for mention '{mention}': {repr(result)}"
+                        "[RetrieverClient] Failed to retrieve candidates for "
+                        f"mention '{mention}': {repr(result)}"
                     )
                     output[mention] = []
                 else:
@@ -63,7 +64,7 @@ class LamapiClient(RetrieverClient):
     def __init__(
         self,
         endpoint: str,
-        token: str = None,
+        token: str | None = None,
         parse_response_func=None,
         max_retries=3,
         backoff_factor=0.5,
