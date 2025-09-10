@@ -59,6 +59,9 @@ tablellama = [
 where = ["."]
 include = ["lion_linker*"]
 
+[tool.setuptools.package-data]
+lion_linker = ["prompt/*.txt"]
+
 [project.scripts]
 lion-linker = "lion_linker.cli:main"
 

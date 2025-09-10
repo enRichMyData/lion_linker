@@ -6,12 +6,9 @@ from pathlib import Path
 import pandas as pd
 from tqdm.asyncio import tqdm
 
-from lion_linker import PROJECT_ROOT
 from lion_linker.core import LLMInteraction
 from lion_linker.prompt.generator import PromptGenerator
 from lion_linker.retrievers import RetrieverClient
-
-DEFAULT_PROMPT_FILE_PATH = os.path.join(PROJECT_ROOT, "prompt", "prompt_template_base.txt")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -44,7 +41,7 @@ class LionLinker:
         model_name: str,
         retriever: RetrieverClient,
         output_csv: str | None = None,
-        prompt_file_path: str = DEFAULT_PROMPT_FILE_PATH,
+        prompt_template: str = "base",
         chunk_size: int = 64,
         mention_columns: list | None = None,
         format_candidates: bool = True,
@@ -69,8 +66,9 @@ class LionLinker:
                 If not provided, the output file will be named based on the input file,
                 with '_output' appended before the extension.
                 Defaults to None.
-            prompt_file_path (str, optional): The file path to the prompt file.
-                Defaults to DEFAULT_PROMPT_FILE_PATH.
+            prompt_template (str, optional): The type of the template to use
+                ('base', 'detailed', 'few_shot' or 'tablellama') or a file path to the prompt file.
+                Defaults to 'base'.
             chunk_size (int, optional): The size of the chunks to process.
                 Defaults to 64.
             mention_columns (list, optional): Columns to consider for mentions.
@@ -113,7 +111,7 @@ class LionLinker:
                 "Input CSV file does not exist or is not a CSV file." f"Input file: {input_csv}"
             )
         self.input_csv = input_csv
-        self.prompt_file_path = prompt_file_path
+        self.prompt_template = prompt_template
         self.model_name = model_name
         self.retriever = retriever
         self.output_csv = output_csv
@@ -158,9 +156,7 @@ class LionLinker:
             self.answer_format = ""
             self.table_summary = ""
             self.format_candidates = True
-            self.prompt_file_path = os.path.join(
-                PROJECT_ROOT, "prompt", "prompt_template_tablellama.txt"
-            )
+            self.prompt_template = "tablellama"
             pattern_str = kwargs.get("id_extraction_pattern", r"Q\d+")
         else:
             self.table_summary = None
@@ -171,7 +167,7 @@ class LionLinker:
 
         logging.info("Initializing components...")
         self.prompt_generator = PromptGenerator(
-            self.prompt_file_path,
+            self.prompt_template,
             self.few_shot_examples_file_path,
             tablellama_format="osunlp" in model_name,
         )

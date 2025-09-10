@@ -3,11 +3,16 @@ from __future__ import annotations
 import copy
 import json
 
+from lion_linker.utils import load_prompt
+
 
 class PromptGenerator:
     def __init__(self, prompt_file, few_shot_examples_file_path=None, tablellama_format=False):
-        with open(prompt_file, "r") as file:
-            self.template = file.read()
+        if prompt_file in {"base", "detailed", "few_shot", "tablellama"}:
+            self.template = load_prompt(prompt_file)
+        else:
+            with open(prompt_file, "r") as file:
+                self.template = file.read()
 
         self.tablellama_format = tablellama_format
 
