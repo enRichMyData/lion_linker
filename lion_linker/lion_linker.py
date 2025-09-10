@@ -36,7 +36,7 @@ class LionLinker:
         - ANSWER:apple-234abc
         - ANSWER:Apple
         - ANSWER:NIL
-    """
+    """  # noqa
 
     def __init__(
         self,
@@ -148,11 +148,6 @@ class LionLinker:
             self.model_name, self.model_api_provider, self.ollama_host, self.model_api_key
         )
 
-        # logging.info("Pulling model if necessary...")
-        # self.llm_interaction.ollama_client.pull(self.model_name)
-
-        logging.info("Setup completed.")
-
         # Hidden parameter for mention to entity ID mapping
         self._mention_to_qids = kwargs.get("mention_to_qids", {})
         self.prediction_suffix = kwargs.get("prediction_suffix", "_pred_id")
@@ -183,6 +178,10 @@ class LionLinker:
 
         self._compiled_id_pattern = re.compile(pattern_str, re.IGNORECASE)
         logging.info(f"Knowledge graph: {self.kg_name}")
+
+        # logging.info("Pulling model if necessary...")
+        # self.llm_interaction.ollama_client.pull(self.model_name)
+        logging.info("Setup completed.")
 
     def generate_table_summary(self, sample_data):
         # Exclude GT columns for testing
@@ -267,9 +266,17 @@ class LionLinker:
                 if "osunlp" in self.model_name:
                     candidates2qid = {
                         (
-                            f"{candidate['name']} "
-                            f"[DESCRIPTION] {candidate['description'] if candidate['description'] is not None else 'None'} "
-                            f"[TYPE] {','.join([t['name'] for t in candidate['types'] if t['name'] is not None])}"
+                            candidate["name"]
+                            + " [DESCRIPTION] "
+                            + (
+                                candidate["description"]
+                                if candidate["description"] is not None
+                                else "None"
+                            )
+                            + "[TYPE] "
+                            + ",".join(
+                                [t["name"] for t in candidate["types"] if t["name"] is not None]
+                            )
                         )
                         .lower()
                         .strip(): candidate["id"]
@@ -295,8 +302,8 @@ class LionLinker:
     def extract_identifier_from_response(self, response):
         """
         Extracts the identifier from a response using the compiled answer pattern.
-        Supports arbitrary ID formats such as Wikidata IDs (e.g., Q42), Crunchbase slugs (e.g., apple-234abc),
-        DBpedia IRIs (e.g., dbo:Apple), or NIL.
+        Supports arbitrary ID formats such as Wikidata IDs (e.g., Q42),
+        Crunchbase slugs (e.g., apple-234abc), DBpedia IRIs (e.g., dbo:Apple), or NIL.
 
         Parameters:
             response (str): The model's response text.

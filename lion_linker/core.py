@@ -41,9 +41,6 @@ class LLMInteraction:
                     config.rope_scaling = {"type": "linear", "factor": scaling_factor}
 
                 # Load model and tokenizer
-                # transformers.models.llama.modeling_llama.LlamaAttention.forward = (
-                #     tablellama_forward_noflashattn
-                # )
                 self.hf_model = transformers.AutoModelForCausalLM.from_pretrained(
                     self.model_name,
                     config=config,
