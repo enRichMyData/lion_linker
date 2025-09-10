@@ -265,34 +265,44 @@ class LionLinker:
                 # Extract identifier from response
                 if "osunlp" in self.model_name:
                     candidates2qid = {
-                        (
-                            candidate["name"]
-                            + " [DESCRIPTION] "
-                            + (
-                                candidate["description"]
-                                if candidate["description"] is not None
-                                else "None"
+                        " ".join(
+                            (
+                                candidate["name"]
+                                + " [DESCRIPTION] "
+                                + (
+                                    candidate["description"]
+                                    if candidate["description"] is not None
+                                    else "None"
+                                )
+                                + " [TYPE] "
+                                + ",".join(
+                                    [
+                                        t["name"]
+                                        for t in candidate["types"]
+                                        if t["name"] is not None
+                                    ]
+                                )
                             )
-                            + "[TYPE] "
-                            + ",".join(
-                                [t["name"] for t in candidate["types"] if t["name"] is not None]
-                            )
-                        )
-                        .lower()
-                        .strip(): candidate["id"]
+                            .lower()
+                            .split()
+                        ): candidate["id"]
                         for candidate in candidates
                     }
                     if response is not None:
                         response = response.lower()
                         response = response.replace("<", "", 1)
                         response = "".join(response.rsplit(">", 1))
-                        response = response.strip()
-                    extracted_identifier = candidates2qid.get(response, "No Identifier")
+                        response = " ".join(response.split())
+                        extracted_identifier = candidates2qid.get(response, "No Identifier")
+                    else:
+                        extracted_identifier = "None"
                 else:
                     extracted_identifier = self.extract_identifier_from_response(response)
 
                 # Add column-specific results to the row
-                results_by_row[id_row][f"{column}_llm_answer"] = " ".join(response.split())
+                results_by_row[id_row][f"{column}_llm_answer"] = (
+                    " ".join(response.split()) if response is not None else "None"
+                )
                 results_by_row[id_row][f"{column}{self.prediction_suffix}"] = extracted_identifier
 
         # Convert to list of dictionaries
