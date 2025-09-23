@@ -69,7 +69,11 @@ cp .env.template .env
 RETRIEVER_ENDPOINT=https://lamapi.hel.sintef.cloud/lookup/entity-retrieval
 RETRIEVER_TOKEN=your_api_token  # Replace with your actual API token
 ```
-The .env file will be used to securely store your Retriever credentials and other sensitive configuration data, so make sure it is not committed to version control.
+The .env file will be used to securely store your Retriever credentials and other sensitive configuration data, so make sure it is not committed to version control. Moreover, if one wants to use [OpenRouter](https://openrouter.ai/) the following additional credential must be set:
+```bash
+OPENROUTER_API_KEY=sk-v1-...
+```
+which can be retreived from the [OpenRouter settings](https://openrouter.ai/settings/keys).
 
 3.	Verify the .env file by checking that RETRIEVER_ENDPOINT and RETRIEVER_TOKEN are correctly set, as these values will be automatically loaded by lion_linker when it runs.
 
