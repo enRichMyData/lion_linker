@@ -1,7 +1,9 @@
+import os
+
 import ollama
 import openai
 import torch
-from groq import Groq
+from openai import OpenAI
 
 
 class LLMInteraction:
@@ -9,10 +11,19 @@ class LLMInteraction:
         self.model_name = model_name
         self.model_api_provider = model_api_provider
         self.model_api_key = model_api_key
-        if ollama_host:
-            self.ollama_client = ollama.Client(ollama_host)
-        else:
-            self.ollama_client = ollama.Client()  # Default Ollama host will be used
+
+        if not self.model_api_provider.lower() not in {"ollama", "operouter", "huggingface"}:
+            raise ValueError(
+                "The model api provider must be one of 'ollama', 'openrouter' or 'huggingface'"
+            )
+
+        if self.model_api_provider == "ollama":
+            self.ollama_client = ollama.Client(ollama_host) if ollama_host else ollama.Client()
+        elif self.model_api_provider == "openrouter":
+            self.openai_client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=model_api_key or os.getenv("OPENROUTER_API_KEY", None),
+            )
 
         # Initialize Hugging Face components if needed
         if self.model_api_provider == "huggingface":
@@ -82,18 +93,14 @@ class LLMInteraction:
     def chat(self, message, *args, stream=True, **kwargs):
         if self.model_api_provider == "ollama":
             return self._chat_ollama(message, *args, stream=stream, **kwargs)
-        elif self.model_api_provider == "openai":
-            self.model_api_key
+        elif self.model_api_provider == "openrouter":
             return self._chat_openai(message, *args, stream=stream, **kwargs)
-        elif self.model_api_provider == "groq":
-            return self._chat_groq(message, *args, stream=stream, **kwargs)
         elif self.model_api_provider == "huggingface":
             return self._chat_huggingface(message, *args, stream=stream, **kwargs)
         else:
             raise ValueError(f"Unsupported API provider: {self.model_api_provider}")
 
     def _chat_ollama(self, message, *args, stream=False, **kwargs):
-        print(f"Using Ollama model: {self.model_name}")
         response = self.ollama_client.chat(
             model=self.model_name,
             messages=[{"role": "user", "content": message}],
@@ -104,36 +111,14 @@ class LLMInteraction:
         # Set the API key directly
         openai.api_key = self.model_api_key
 
-        # Call the OpenAI API
-        response = openai.ChatCompletion.create(
+        response = self.openai_client.chat.completions.create(
             model=self.model_name,
-            messages=[
-                {
-                    "role": "user",  # Role can be "user", "system", or "assistant"
-                    "content": message,  # The actual message content
-                }
-            ],
+            messages=[{"role": "user", "content": message}],
         )
 
         # Extract the chatbot's message from the response.
         # Assuming there's at least one response and taking the last one as the chatbot's reply.
         result = response.choices[0].message.content
-        return result
-
-    def _chat_groq(self, message, stream):
-        client = Groq(api_key=self.model_api_key)
-
-        chat_completion = client.chat.completions.create(
-            model=self.model_name,
-            messages=[
-                {
-                    "role": "user",
-                    "content": message,
-                }
-            ],
-        )
-
-        result = chat_completion.choices[0].message.content
         return result
 
     def _chat_huggingface(self, message, *args, stream=False, **kwargs):

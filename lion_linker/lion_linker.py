@@ -80,12 +80,12 @@ class LionLinker:
                 This is only used if `format_candidates` is False.
                 Defaults to True.
             model_api_provider (str, optional): The provider for the model API.
-                Supported providers: "ollama", "openai", "groq", "huggingface".
+                Supported providers: "ollama", "openrouter", "huggingface".
                 Defaults to "ollama".
             ollama_host (str, optional): The host for the Ollama service.
                 Defaults to None.
             model_api_key (str, optional): The API key for the model service.
-                Required for "openai" and "groq" providers.
+                Required for "openrouter" providers.
                 Defaults to None.
             few_shot_examples_file_path (str, optional): The file path to
                 the few shot examples file.
