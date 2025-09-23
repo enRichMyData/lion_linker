@@ -36,6 +36,13 @@ cd lion_linker
 pip install -e .
 ```
 
+To use the [HuggingFace backend](https://huggingface.co/docs/transformers/en/index) run the following:
+
+```bash
+pip install git+https://github.com/enrichMyData/lion_linker.git#egg=lion_linker[tablellama]
+pip install -U huggingface-hub
+```
+
 ### Step 2: Install **Ollama**
 
 **Ollama** is required for the large language models to function with **lion_linker**. You must install it separately and ensure it is running locally.
