@@ -6,12 +6,9 @@ from pathlib import Path
 import pandas as pd
 from tqdm.asyncio import tqdm
 
-from lion_linker import PROJECT_ROOT
 from lion_linker.core import LLMInteraction
 from lion_linker.prompt.generator import PromptGenerator
 from lion_linker.retrievers import RetrieverClient
-
-DEFAULT_PROMPT_FILE_PATH = os.path.join(PROJECT_ROOT, "prompt", "prompt_template.txt")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -36,7 +33,7 @@ class LionLinker:
         - ANSWER:apple-234abc
         - ANSWER:Apple
         - ANSWER:NIL
-    """
+    """  # noqa
 
     def __init__(
         self,
@@ -44,7 +41,7 @@ class LionLinker:
         model_name: str,
         retriever: RetrieverClient,
         output_csv: str | None = None,
-        prompt_file_path: str = DEFAULT_PROMPT_FILE_PATH,
+        prompt_template: str = "base",
         chunk_size: int = 64,
         mention_columns: list | None = None,
         format_candidates: bool = True,
@@ -69,8 +66,9 @@ class LionLinker:
                 If not provided, the output file will be named based on the input file,
                 with '_output' appended before the extension.
                 Defaults to None.
-            prompt_file_path (str, optional): The file path to the prompt file.
-                Defaults to DEFAULT_PROMPT_FILE_PATH.
+            prompt_template (str, optional): The type of the template to use
+                ('base', 'detailed', 'few_shot' or 'tablellama') or a file path to the prompt file.
+                Defaults to 'base'.
             chunk_size (int, optional): The size of the chunks to process.
                 Defaults to 64.
             mention_columns (list, optional): Columns to consider for mentions.
@@ -82,10 +80,12 @@ class LionLinker:
                 This is only used if `format_candidates` is False.
                 Defaults to True.
             model_api_provider (str, optional): The provider for the model API.
+                Supported providers: "ollama", "openai", "groq", "huggingface".
                 Defaults to "ollama".
             ollama_host (str, optional): The host for the Ollama service.
                 Defaults to None.
             model_api_key (str, optional): The API key for the model service.
+                Required for "openai" and "groq" providers.
                 Defaults to None.
             few_shot_examples_file_path (str, optional): The file path to
                 the few shot examples file.
@@ -103,6 +103,7 @@ class LionLinker:
                       - id_extraction_pattern: Regex pattern for extracting IDs from responses
                       - prediction_suffix: Suffix for prediction column names
                       - kg_name: Name of the knowledge graph being used
+                      - compute_table_summary: Whether to create table summary or not
         """
 
         if not os.path.exists(input_csv) or os.path.splitext(input_csv)[1] != ".csv":
@@ -110,7 +111,7 @@ class LionLinker:
                 "Input CSV file does not exist or is not a CSV file." f"Input file: {input_csv}"
             )
         self.input_csv = input_csv
-        self.prompt_file_path = prompt_file_path
+        self.prompt_template = prompt_template
         self.model_name = model_name
         self.retriever = retriever
         self.output_csv = output_csv
@@ -125,7 +126,6 @@ class LionLinker:
         self.model_api_key = model_api_key
         self.few_shot_examples_file_path = few_shot_examples_file_path
         # Use a cleaned DEFAULT_ANSWER_FORMAT with extra spaces and newlines removed
-        self.answer_format = answer_format or " ".join(LionLinker.DEFAULT_ANSWER_FORMAT.split())
         self.gt_columns = gt_columns or []  # Columns to exclude from processing
         self.table_ctx_size = table_ctx_size
         if self.table_ctx_size < 0:
@@ -141,29 +141,43 @@ class LionLinker:
                 f"Got batch size: {self.chunk_size}, table context size: {self.table_ctx_size}"
             )
 
-        logging.info("Initializing components...")
-        self.prompt_generator = PromptGenerator(
-            self.prompt_file_path, self.few_shot_examples_file_path
-        )
-
         logging.info(f"Model API provider is: {self.model_api_provider}")
         self.llm_interaction = LLMInteraction(
             self.model_name, self.model_api_provider, self.ollama_host, self.model_api_key
         )
 
-        #logging.info("Pulling model if necessary...")
-        #self.llm_interaction.ollama_client.pull(self.model_name)
-
-        logging.info("Setup completed.")
-        self.table_summary = None  # Placeholder for the table summary
-
         # Hidden parameter for mention to entity ID mapping
         self._mention_to_qids = kwargs.get("mention_to_qids", {})
-        pattern_str = kwargs.get("id_extraction_pattern", r"ANSWER:\s*([^\s]+)")
-        self._compiled_id_pattern = re.compile(pattern_str, re.IGNORECASE)
         self.prediction_suffix = kwargs.get("prediction_suffix", "_pred_id")
         self.kg_name = kwargs.get("kg_name", "generic")
+
+        # TableLlama checks
+        if "osunlp" in model_name:
+            self.answer_format = ""
+            self.table_summary = ""
+            self.format_candidates = True
+            self.prompt_template = "tablellama"
+            pattern_str = kwargs.get("id_extraction_pattern", r"Q\d+")
+        else:
+            self.table_summary = None
+            self.answer_format = answer_format or " ".join(
+                LionLinker.DEFAULT_ANSWER_FORMAT.split()
+            )
+            pattern_str = kwargs.get("id_extraction_pattern", r"ANSWER:\s*([^\s]+)")
+
+        logging.info("Initializing components...")
+        self.prompt_generator = PromptGenerator(
+            self.prompt_template,
+            self.few_shot_examples_file_path,
+            tablellama_format="osunlp" in model_name,
+        )
+
+        self._compiled_id_pattern = re.compile(pattern_str, re.IGNORECASE)
         logging.info(f"Knowledge graph: {self.kg_name}")
+
+        # logging.info("Pulling model if necessary...")
+        # self.llm_interaction.ollama_client.pull(self.model_name)
+        logging.info("Setup completed.")
 
     def generate_table_summary(self, sample_data):
         # Exclude GT columns for testing
@@ -201,20 +215,20 @@ class LionLinker:
             kwargs["mention_to_qids"] = self._mention_to_qids
 
         mentions_to_candidates = await self.retriever.fetch_multiple_entities(mentions, **kwargs)
-        
+
         # Group results by row ID
         results_by_row = {}
-        
+
         for loc_idx, (id_row, row) in enumerate(chunk.iterrows()):
             table_view = chunk.iloc[
                 max(0, loc_idx - self.table_ctx_size) : loc_idx + self.table_ctx_size + 1
             ]
             table_list = [table_view.columns.tolist()] + table_view.values.tolist()
-            
+
             # Initialize row result if not exists
             if id_row not in results_by_row:
                 results_by_row[id_row] = {"id_row": id_row}
-            
+
             for column in self.mention_columns:
                 entity_mention = row[column]
                 candidates = mentions_to_candidates.get(entity_mention, [])
@@ -245,10 +259,46 @@ class LionLinker:
                     response = "ANSWER:NIL"  # fallback or you could raise if preferred
 
                 # Extract identifier from response
-                extracted_identifier = self.extract_identifier_from_response(response)
+                if "osunlp" in self.model_name:
+                    candidates2qid = {
+                        " ".join(
+                            (
+                                candidate["name"]
+                                + " [DESCRIPTION] "
+                                + (
+                                    candidate["description"]
+                                    if candidate["description"] is not None
+                                    else "None"
+                                )
+                                + " [TYPE] "
+                                + ",".join(
+                                    [
+                                        t["name"]
+                                        for t in candidate["types"]
+                                        if t["name"] is not None
+                                    ]
+                                )
+                            )
+                            .lower()
+                            .split()
+                        ): candidate["id"]
+                        for candidate in candidates
+                    }
+                    if response is not None:
+                        response = response.lower()
+                        response = response.replace("<", "", 1)
+                        response = "".join(response.rsplit(">", 1))
+                        response = " ".join(response.split())
+                        extracted_identifier = candidates2qid.get(response, "No Identifier")
+                    else:
+                        extracted_identifier = "None"
+                else:
+                    extracted_identifier = self.extract_identifier_from_response(response)
 
                 # Add column-specific results to the row
-                results_by_row[id_row][f"{column}_llm_answer"] = " ".join(response.split())
+                results_by_row[id_row][f"{column}_llm_answer"] = (
+                    " ".join(response.split()) if response is not None else "None"
+                )
                 results_by_row[id_row][f"{column}{self.prediction_suffix}"] = extracted_identifier
 
         # Convert to list of dictionaries
@@ -258,8 +308,8 @@ class LionLinker:
     def extract_identifier_from_response(self, response):
         """
         Extracts the identifier from a response using the compiled answer pattern.
-        Supports arbitrary ID formats such as Wikidata IDs (e.g., Q42), Crunchbase slugs (e.g., apple-234abc),
-        DBpedia IRIs (e.g., dbo:Apple), or NIL.
+        Supports arbitrary ID formats such as Wikidata IDs (e.g., Q42),
+        Crunchbase slugs (e.g., apple-234abc), DBpedia IRIs (e.g., dbo:Apple), or NIL.
 
         Parameters:
             response (str): The model's response text.
@@ -314,7 +364,8 @@ class LionLinker:
         if first_chunk is not None:
             # Sample a few rows from the first chunk
             sample_data = first_chunk.sample(min(5, len(first_chunk)))
-            self.table_summary = self.generate_table_summary(sample_data)
+            if self.table_summary is None:
+                self.table_summary = self.generate_table_summary(sample_data)
         else:
             raise ValueError("Not enough data to compute table summary")
 
@@ -430,7 +481,8 @@ class LionLinker:
         pbar = tqdm(total=estimated_total_rows, desc="Processing Batches")
 
         # Compute table summary with a sample from the first batch
-        await self.compute_table_summary()
+        if self.table_summary is None:
+            await self.compute_table_summary()
 
         # Track the actual number of rows processed
         actual_rows_processed = 0

@@ -11,7 +11,7 @@ authors = [
 ]
 urls = {Homepage = "https://github.com/roby-avo/lion_linker"}
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 
 classifiers = [
@@ -40,15 +40,27 @@ app = [
     "uvicorn==0.34",
 ]
 dev = [
-    "flake8==4.0.1",
-    "black==21.12b0",
-    "isort==5.10.2",
-    "mypy==0.910",
+    "flake8",
+    "black",
+    "isort",
+    "mypy",
+]
+huggingface = [
+    "transformers"
+]
+tablellama = [
+    "transformers==4.34",
+    "tokenizers==0.14",
+    "protobuf==6.32.0",
+    "sentencepiece==0.2.1",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["lion_linker*"]
+
+[tool.setuptools.package-data]
+lion_linker = ["prompt/*.txt"]
 
 [project.scripts]
 lion-linker = "lion_linker.cli:main"

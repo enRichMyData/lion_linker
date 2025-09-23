@@ -1,9 +1,10 @@
 import asyncio
 import json
+import logging
 import urllib.parse
 
 import aiohttp
-import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -11,7 +12,7 @@ class RetrieverClient:
     def __init__(
         self,
         endpoint: str,
-        token: str = None,
+        token: str | None = None,
         parse_response_func=None,
         max_retries=3,
         backoff_factor=0.5,
@@ -49,7 +50,10 @@ class RetrieverClient:
             output = {}
             for mention, result in zip(mentions, results):
                 if isinstance(result, Exception):
-                    logger.warning(f"[RetrieverClient] Failed to retrieve candidates for mention '{mention}': {repr(result)}")
+                    logger.warning(
+                        "[RetrieverClient] Failed to retrieve candidates for "
+                        f"mention '{mention}': {repr(result)}"
+                    )
                     output[mention] = []
                 else:
                     output[mention] = result
@@ -60,7 +64,7 @@ class LamapiClient(RetrieverClient):
     def __init__(
         self,
         endpoint: str,
-        token: str = None,
+        token: str | None = None,
         parse_response_func=None,
         max_retries=3,
         backoff_factor=0.5,

@@ -3,8 +3,8 @@ This is an entity linking task. Match the mention in a table to one of the given
 Examples:
 [EXAMPLES]
 
-Follow the same reasoning style as the examples.  
-Use only the provided candidates.  
+Follow the same reasoning style as the examples.
+Use only the provided candidates.
 If none match, say so.
 
 Steps:

@@ -3,11 +3,18 @@ from __future__ import annotations
 import copy
 import json
 
+from lion_linker.utils import load_prompt
+
 
 class PromptGenerator:
-    def __init__(self, prompt_file, few_shot_examples_file_path=None):
-        with open(prompt_file, "r") as file:
-            self.template = file.read()
+    def __init__(self, prompt_file, few_shot_examples_file_path=None, tablellama_format=False):
+        if prompt_file in {"base", "detailed", "few_shot", "tablellama"}:
+            self.template = load_prompt(prompt_file)
+        else:
+            with open(prompt_file, "r") as file:
+                self.template = file.read()
+
+        self.tablellama_format = tablellama_format
 
         self.few_shot_examples = "N.A."
         if few_shot_examples_file_path is not None:
@@ -15,7 +22,18 @@ class PromptGenerator:
                 self.few_shot_examples = file.read()
 
     def _format_table(self, table: list[list[str]]) -> str:
-        return "\n".join(["|" + "|".join(map(str, row)) + "|" for row in table])
+        if self.tablellama_format:
+            table_str = ""
+            for row_idx, row in enumerate(table):
+                if row_idx == 0:
+                    table_str += "col: " + "| " + " | ".join(map(str, row)) + " |"
+                else:
+                    table_str += (
+                        f" [SEP] row {row_idx}: " + "| " + " | ".join(map(str, row)) + " |"
+                    )
+            return table_str
+        else:
+            return "\n".join(["|" + "|".join(map(str, row)) + "|" for row in table])
 
     def generate_prompt(
         self,
@@ -59,15 +77,25 @@ class PromptGenerator:
             optimized_candidates.append(optimized_candidate)
 
         if format_candidates:
-            candidates_text = ",".join(
-                [
-                    f"<id: {candidate['id']}; "
-                    f"name: {candidate['name']}; "
-                    f"description: {candidate['description'] if candidate['description'] is not None else 'N.A.'}; "  # noqa: E501
-                    f"types: {','.join([t['name'] for t in candidate['types'] if t['name'] is not None])}>"  # noqa: E501
-                    for candidate in optimized_candidates
-                ]
-            )
+            if not self.tablellama_format:
+                candidates_text = ",".join(
+                    [
+                        f"<id: {candidate['id']}; "
+                        f"name: {candidate['name']}; "
+                        f"description: {candidate['description'] if candidate['description'] is not None else 'N.A.'}; "  # noqa: E501
+                        f"types: {','.join([t['name'] for t in candidate['types'] if t['name'] is not None])}>"  # noqa: E501
+                        for candidate in optimized_candidates
+                    ]
+                )
+            else:
+                candidates_text = ",".join(
+                    [
+                        f"<{candidate['name']} "
+                        f"[DESCRIPTION] {candidate['description'] if candidate['description'] is not None else 'None'} "  # noqa: E501
+                        f"[TYPE] {','.join([t['name'] for t in candidate['types'] if t['name'] is not None])}>"  # noqa: E501
+                        for candidate in optimized_candidates
+                    ]
+                )
         else:
             if compact:
                 # Convert optimized candidates list to a compact JSON string

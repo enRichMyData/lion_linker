@@ -1,0 +1,13 @@
+Below is an instruction that describes a task, paired with an input that provides further context.
+Write a response that appropriately completes the request.
+
+### Instruction:
+This is an entity linking task. The goal for this task is to link the selected entity mention in the table cells to the entity in the knowledge base. You will be given a list of referent entities, with each one composed of an entity name, its description and its type. Please choose the correct one from the referent entity candidates. Note that the Wikipedia page, Wikipedia section and table caption (if any) provide important information for choosing the correct referent entity.
+
+### Input:
+[TLE] None [TAB] [TABLE]
+
+### Question:
+The selected entity mention in the table cell is: '[ENTITY MENTION]'. The column name for '[ENTITY MENTION]' is '[COLUMN NAME]'. The referent entity candidates are: [CANDIDATES]. What is the correct referent entity for the entity mention '[ENTITY MENTION]'?
+
+### Response:"
