@@ -15,6 +15,7 @@
 - **Customizable Prompt Templates**: Adjust the linking prompt to fit your data structure.
 - **Scalable for Large Datasets**: Process large datasets by batching the work and customizing API result limits.
 - **Flexible API**: Programmatic interface for advanced users.
+- **REST API (FastAPI)**: Host LionLinker as a background job service with queued workloads.
 
 ## Installation
 
@@ -198,10 +199,73 @@ python -m lion_linker.cli \
 - `output_csv`: Path where the output file will be saved.
 - `ollama_host`: The host where the Ollama service is running.
 - `--prompt_file_path`: Path to a file containing a custom prompt template.
+
 - `--model`: The LLM model to use for entity linking.
 - `--chunk_size`: Defines how many rows to process at once.
 - `--mention_columns`: Columns in the CSV that contain entity mentions.
 - `--num_candidates`: Maximum number of candidates returned by the API per mention.
+
+## REST API server
+
+The repository now includes a FastAPI application (located in `app/`) that exposes a small REST interface for working with LionLinker jobs. The service persists all datasets, tables, and job metadata in MongoDB, so you get durability and a multi-process friendly queue without managing local JSON files.
+
+### Install dependencies
+
+```bash
+pip install -e .[app]
+```
+
+### Configure
+
+The API shares the same environment variables as the Python/CLI interfaces. The most relevant flags are:
+
+- `RETRIEVER_ENDPOINT`, `RETRIEVER_TOKEN`: LamAPI (or compatible) endpoint configuration.
+- `LION_MODEL_NAME`, `LION_MODEL_PROVIDER`, `OPENROUTER_API_KEY`, `OLLAMA_HOST`: model backend settings.
+- `LION_MENTION_COLUMNS`: optional JSON/CSV list of default mention columns (used when the request does not provide per-table overrides).
+- `LION_DRY_RUN=true`: force offline/dry runs that emit `ANSWER:NIL` predictions without contacting retrievers or models (handy for local testing).
+- `MONGO_URI` (defaults to `mongodb://localhost:27017`), `MONGO_DB`, and `MONGO_COLLECTION_PREFIX`: connection settings for the MongoDB instance backing the job store.
+
+### Run
+
+```bash
+uvicorn app.main:app --reload
+```
+
+### Docker Compose
+
+You can spin up the API and a MongoDB instance together using the provided compose file:
+
+```bash
+cd docker/service
+docker compose up --build
+```
+
+The compose stack exposes the API on `http://localhost:8000` and MongoDB on `mongodb://localhost:27017` with a persistent Docker volume for data.
+
+### Endpoints
+
+- `POST /dataset` – registers dataset/table payloads (you can send multiple at once). Returns dataset and table identifiers that can be reused later.
+- `POST /createWithArray` – accepts the same payload as `/dataset` and enqueues a LionLinker job for each table. An optional `token` query parameter is stored with the job and checked when polling.
+- `GET /dataset/{dataset_id}/table/{table_id}` – checks the most recent job for that table. Supports pagination via `page`/`per_page` and includes prediction results once the job completes.
+- `GET /jobs/{job_id}` – fetches the state of a specific job (mirrors the information returned when polling via dataset/table).
+
+Example request bodies (matching the payloads from the CLI):
+
+```json
+[
+  {
+    "datasetName": "EMD-BC",
+    "tableName": "SN-BC-1753173071015729",
+    "header": ["Point of Interest", "Place"],
+    "rows": [
+      {"idRow": 1, "data": ["John F. Kennedy Presidential Library and Museum", "Columbia Point"]}
+    ],
+    "kgReference": "wikidata"
+  }
+]
+```
+
+Send this to `/createWithArray` to start processing. Poll `/dataset/{datasetId}/table/{tableId}` until the job reports `status: completed`.
 
 ## Running Tests
 

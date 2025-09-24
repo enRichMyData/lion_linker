@@ -164,3 +164,5 @@ cython_debug/
 output_test.csv
 notebooks/
 .python-version
+data/
+.vscode/
