@@ -166,3 +166,4 @@ notebooks/
 .python-version
 data/
 .vscode/
+uv.lock

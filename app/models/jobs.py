@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +27,8 @@ class JobRecord(BaseModel):
     result_path: Optional[str] = Field(default=None, alias="resultPath")
     total_rows: Optional[int] = Field(default=None, alias="totalRows")
     processed_rows: Optional[int] = Field(default=None, alias="processedRows")
+    lion_config: Optional[Dict[str, Any]] = Field(default=None, alias="lionConfig")
+    retriever_config: Optional[Dict[str, Any]] = Field(default=None, alias="retrieverConfig")
 
     class Config:
         populate_by_name = True
@@ -74,3 +76,5 @@ class JobInfoResponse(BaseModel):
     processedRows: Optional[int] = None
     message: Optional[str] = None
     updatedAt: datetime
+    lionConfig: Optional[Dict[str, Any]] = None
+    retrieverConfig: Optional[Dict[str, Any]] = None

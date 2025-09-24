@@ -126,7 +126,12 @@ async def enqueue_jobs(
     for item in payload:
         dataset_response = await store.upsert_dataset(item)
         table = await store.get_table(dataset_response.datasetId, dataset_response.tableId)
-        job = await store.create_job(table, token=token)
+        job = await store.create_job(
+            table,
+            token=token,
+            lion_config=item.lion_config,
+            retriever_config=item.retriever_config,
+        )
         responses.append(job)
         await queue.enqueue(job.jobId)
     return responses
@@ -210,4 +215,6 @@ async def job_info(
         processedRows=job.processed_rows,
         message=job.message,
         updatedAt=job.updated_at,
+        lionConfig=job.lion_config,
+        retrieverConfig=job.retriever_config,
     )

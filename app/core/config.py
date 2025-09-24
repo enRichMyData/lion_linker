@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     app_name: str = "LionLinker API"
     version: str = "0.1.0"
-    workspace_path: Path = Field(default=Path("data/api_runs"))
+    workspace_path: Path = Field(default=Path("data/api_runs"), validation_alias="WORKSPACE_PATH")
     mongo_uri: Optional[str] = Field(
         default="mongodb://localhost:27017", validation_alias="MONGO_URI"
     )

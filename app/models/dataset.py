@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -29,6 +29,8 @@ class DatasetPayload(BaseModel):
     )
     metadata: Dict[str, object] = Field(default_factory=dict)
     kg_reference: str = Field(default="wikidata", alias="kgReference")
+    lion_config: Optional[Dict[str, Any]] = Field(default=None, alias="lionConfig")
+    retriever_config: Optional[Dict[str, Any]] = Field(default=None, alias="retrieverConfig")
 
     @model_validator(mode="after")
     def validate_rows(self) -> "DatasetPayload":
@@ -60,6 +62,8 @@ class DatasetTableRecord(BaseModel):
     kg_reference: str
     created_at: datetime
     updated_at: datetime
+    lion_config: Optional[Dict[str, Any]] = None
+    retriever_config: Optional[Dict[str, Any]] = None
 
 
 class DatasetResponse(BaseModel):

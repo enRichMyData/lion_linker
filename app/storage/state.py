@@ -4,7 +4,7 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -114,6 +114,8 @@ class StateStore:
                 "kg_reference": payload.kg_reference,
                 "created_at": table_created,
                 "updated_at": now,
+                "lion_config": payload.lion_config,
+                "retriever_config": payload.retriever_config,
             }
 
             await self._tables.update_one({"_id": table_id}, {"$set": record_doc}, upsert=True)
@@ -153,7 +155,11 @@ class StateStore:
         return DatasetTableRecord.model_validate(payload)
 
     async def create_job(
-        self, table: DatasetTableRecord, token: Optional[str] = None
+        self,
+        table: DatasetTableRecord,
+        token: Optional[str] = None,
+        lion_config: Optional[Dict[str, Any]] = None,
+        retriever_config: Optional[Dict[str, Any]] = None,
     ) -> JobEnqueueResponse:
         now = datetime.now(tz=timezone.utc)
         job_id = uuid.uuid4().hex
@@ -165,6 +171,8 @@ class StateStore:
             createdAt=now,
             updatedAt=now,
             token=token,
+            lionConfig=lion_config,
+            retrieverConfig=retriever_config,
         )
         doc = record.model_dump(by_alias=True)
         doc["_id"] = job_id

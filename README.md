@@ -249,6 +249,33 @@ The compose stack exposes the API on `http://localhost:8000` and MongoDB on `mon
 - `GET /dataset/{dataset_id}/table/{table_id}` – checks the most recent job for that table. Supports pagination via `page`/`per_page` and includes prediction results once the job completes.
 - `GET /jobs/{job_id}` – fetches the state of a specific job (mirrors the information returned when polling via dataset/table).
 
+You can override LionLinker settings per request by attaching optional `lionConfig` and `retrieverConfig` objects to each table payload. For example:
+
+```json
+{
+  "datasetName": "EMD-BC",
+  "tableName": "SN-BC-1753173071015729",
+  "header": ["Point of Interest", "Place"],
+  "rows": [
+    {"idRow": 1, "data": ["John F. Kennedy Presidential Library and Museum", "Columbia Point"]},
+    {"idRow": 2, "data": ["Petrie Museum of Egyptian Archaeology", "London"]}
+  ],
+  "lionConfig": {
+    "chunkSize": 16,
+    "mentionColumns": ["Point of Interest"],
+    "tableCtxSize": 2,
+    "modelName": "gemma2:2b"
+  },
+  "retrieverConfig": {
+    "numCandidates": 5,
+    "endpoint": "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval",
+    "token": "lamapi_demo_2023"
+  }
+}
+```
+
+The overrides are stored with the job and surfaced via `GET /jobs/{job_id}`, so you can confirm which parameters were used.
+
 Example request bodies (matching the payloads from the CLI):
 
 ```json
