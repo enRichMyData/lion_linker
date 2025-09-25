@@ -32,6 +32,7 @@ dependencies = [
     "python-dotenv==1.0.1",
     "jsonargparse==4.37.0",
     "torch>=2.8.0",
+    "transformers>=4.34.0",
 ]
 
 [project.optional-dependencies]
@@ -47,9 +48,6 @@ dev = [
     "black",
     "isort",
     "mypy",
-]
-huggingface = [
-    "transformers"
 ]
 tablellama = [
     "transformers==4.34",

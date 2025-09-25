@@ -37,7 +37,7 @@ cd lion_linker
 pip install -e .
 ```
 
-To use the [HuggingFace backend](https://huggingface.co/docs/transformers/en/index) run the following:
+To use [TableLlama](https://osu-nlp-group.github.io/TableLlama/) run the following:
 
 ```bash
 pip install git+https://github.com/enrichMyData/lion_linker.git#egg=lion_linker[tablellama]
