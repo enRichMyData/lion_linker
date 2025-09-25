@@ -29,4 +29,4 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-index --find-links=/wheels -r /requirements.txt /wheels/lion_linker-*.whl
 
 RUN mkdir -p /app/data
-CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","9000"]
+CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","9000","--reload","--reload-dir","/app"]
