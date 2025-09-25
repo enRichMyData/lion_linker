@@ -155,6 +155,50 @@ async def annotate_table_subset(
     return job
 
 
+@router.patch(
+    "/datasets/{dataset_id}/tables/{table_id}/annotations",
+    response_model=JobEnqueueResponse,
+)
+async def update_annotations(
+    dataset_id: str,
+    table_id: str,
+    request: TableAnnotationRequest,
+    store: StateStore = Depends(get_store),
+    queue: TaskQueue = Depends(get_task_queue),
+) -> JobEnqueueResponse:
+    try:
+        table = await store.get_table(dataset_id, table_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Dataset or table not found") from exc
+
+    row_ids_clean: Optional[List[int]] = None
+    if request.row_ids:
+        try:
+            row_ids_clean = sorted({int(rid) for rid in request.row_ids})
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="rowIds must be integers") from exc
+        existing_ids = {row.id_row for row in table.rows}
+        missing = [rid for rid in row_ids_clean if rid not in existing_ids]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Rows not found for table {table_id}: {missing}",
+            )
+
+    _require_snake_case(request.lion_config, "lionConfig")
+    _require_snake_case(request.retriever_config, "retrieverConfig")
+
+    job = await store.create_job(
+        table,
+        token=request.token,
+        lion_config=request.lion_config,
+        retriever_config=request.retriever_config,
+        row_ids=row_ids_clean,
+    )
+    await queue.enqueue(job.jobId)
+    return job
+
+
 @router.get("/dataset/{dataset_id}/table/{table_id}", response_model=JobStatusResponse)
 async def job_status(
     dataset_id: str,
