@@ -103,7 +103,7 @@ class LinkerRunner:
             )
             return
 
-        retriever = self._build_retriever(table, retriever_config)
+        retriever, effective_retriever_config = self._build_retriever(table, retriever_config)
 
         chunk_size = self._int_option(lion_config, ["chunk_size"], self.DEFAULT_CHUNK_SIZE)
         if chunk_size is None or chunk_size < 1:
@@ -162,7 +162,13 @@ class LinkerRunner:
         )
 
         logger.info("Job %s: launching LionLinker run", job_id)
-        lion = self._build_lion_linker(paths, table, retriever, lion_kwargs)
+        lion = self._build_lion_linker(
+            paths,
+            table,
+            retriever,
+            lion_kwargs,
+            effective_retriever_config,
+        )
 
         await asyncio.to_thread(self._run_lion_linker_blocking, lion)
         logger.info("Job %s: LionLinker run finished", job_id)
@@ -296,22 +302,30 @@ class LinkerRunner:
         self,
         table: DatasetTableRecord,
         config: Optional[Dict[str, Any]],
-    ) -> RetrieverClient:
-        config = config or {}
+    ) -> tuple[RetrieverClient, Dict[str, Any]]:
+        base_config: Dict[str, Any] = {}
+        if table.retriever_config and isinstance(table.retriever_config, dict):
+            base_config.update(table.retriever_config)
+        else:
+            base_config.update(linker_defaults.default_retriever_config())
 
-        class_path = config.get("class_path")
+        effective_config = base_config.copy()
+        if config:
+            effective_config.update(config)
+
+        class_path = effective_config.get("class_path")
         if class_path:
             retriever_cls = self._load_class(str(class_path))
         else:
             retriever_cls = LamapiClient
 
-        endpoint = config.get("endpoint")
-        token = config.get("token")
-        num_candidates = self._int_option(config, ["num_candidates"], None)
-        kg_value = config.get("kg", table.kg_reference)
-        cache = self._bool_option(config, ["cache"], None)
-        max_retries = self._int_option(config, ["max_retries"], None)
-        backoff_factor = self._float_option(config, ["backoff_factor"], None)
+        endpoint = effective_config.get("endpoint")
+        token = effective_config.get("token")
+        num_candidates = self._int_option(effective_config, ["num_candidates"], None)
+        kg_value = effective_config.get("kg") or linker_defaults.DEFAULT_KG_NAME
+        cache = self._bool_option(effective_config, ["cache"], None)
+        max_retries = self._int_option(effective_config, ["max_retries"], None)
+        backoff_factor = self._float_option(effective_config, ["backoff_factor"], None)
 
         recognised = {
             "class_path",
@@ -323,10 +337,12 @@ class LinkerRunner:
             "max_retries",
             "backoff_factor",
         }
-        extra_kwargs = {key: value for key, value in config.items() if key not in recognised}
+        extra_kwargs = {
+            key: value for key, value in effective_config.items() if key not in recognised
+        }
 
         if retriever_cls is LamapiClient and not endpoint:
-            return NullRetriever(num_candidates=num_candidates or 0)
+            return NullRetriever(num_candidates=num_candidates or 0), effective_config
 
         kwargs: Dict[str, Any] = dict(extra_kwargs)
         if endpoint is not None:
@@ -345,9 +361,11 @@ class LinkerRunner:
             kwargs.setdefault("backoff_factor", backoff_factor)
 
         try:
-            return retriever_cls(**kwargs)
+            retriever_instance = retriever_cls(**kwargs)
         except TypeError as exc:  # pragma: no cover - dependency errors surface here
             raise ValueError(f"Unable to initialise retriever {retriever_cls}: {exc}") from exc
+
+        return retriever_instance, effective_config
 
     def _build_lion_linker(
         self,
@@ -355,14 +373,23 @@ class LinkerRunner:
         table: DatasetTableRecord,
         retriever: RetrieverClient,
         lion_kwargs: Dict[str, Any],
+        retriever_config: Optional[Dict[str, Any]],
     ) -> LionLinker:
+        kg_name = linker_defaults.DEFAULT_KG_NAME
+        if retriever_config and isinstance(retriever_config, dict):
+            kg_name = retriever_config.get("kg", kg_name)
+        elif table.retriever_config and isinstance(table.retriever_config, dict):
+            kg_name = table.retriever_config.get("kg", kg_name)
+
+        merged_kwargs = dict(lion_kwargs)
+        merged_kwargs.setdefault("kg_name", kg_name)
+
         kwargs = {
             "input_csv": str(paths.input_csv),
             "output_csv": str(paths.output_csv),
             "retriever": retriever,
-            "kg_name": table.kg_reference,
         }
-        kwargs.update(lion_kwargs)
+        kwargs.update(merged_kwargs)
         return LionLinker(**kwargs)
 
     def _prepare_paths(self, job_id: str, table: DatasetTableRecord) -> JobPaths:
