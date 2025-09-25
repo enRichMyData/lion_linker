@@ -43,10 +43,18 @@ class PredictionSummary(BaseModel):
     identifier: Optional[str] = None
 
 
+class AnnotationMeta(BaseModel):
+    jobId: str
+    updatedAt: datetime = Field(alias="updatedAt")
+    lionConfig: Optional[Dict[str, Any]] = Field(default=None, alias="lionConfig")
+    retrieverConfig: Optional[Dict[str, Any]] = Field(default=None, alias="retrieverConfig")
+
+
 class ResultRow(BaseModel):
     idRow: int
     data: List[str]
     predictions: List[PredictionSummary]
+    annotationMeta: Optional[AnnotationMeta] = None
 
 
 class JobStatusResponse(BaseModel):

@@ -308,6 +308,9 @@ class StateStore:
         dataset_id: str,
         table_id: str,
         rows: List[ResultRow],
+        *,
+        lion_config: Optional[Dict[str, Any]] = None,
+        retriever_config: Optional[Dict[str, Any]] = None,
         batch_size: Optional[int] = None,
     ) -> int:
         if batch_size is None or batch_size < 1:
@@ -316,12 +319,21 @@ class StateStore:
         batch_size = max(1, batch_size)
 
         operations: List[UpdateOne] = []
+        timestamp = datetime.now(tz=timezone.utc)
         for row in rows:
             annotations = [prediction.model_dump(mode="json") for prediction in row.predictions]
+            metadata: Dict[str, Any] = {
+                "jobId": job_id,
+                "updatedAt": timestamp,
+            }
+            if lion_config:
+                metadata["lionConfig"] = lion_config
+            if retriever_config:
+                metadata["retrieverConfig"] = retriever_config
             operations.append(
                 UpdateOne(
                     {"tableId": table_id, "idRow": row.idRow},
-                    {"$set": {"annotations": annotations}},
+                    {"$set": {"annotations": annotations, "annotationMeta": metadata}},
                 )
             )
 
@@ -366,6 +378,7 @@ class StateStore:
                     "idRow": doc["idRow"],
                     "data": doc.get("data", []),
                     "predictions": doc.get("annotations", []),
+                    "annotationMeta": doc.get("annotationMeta"),
                 }
             )
 

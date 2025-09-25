@@ -321,6 +321,8 @@ class LinkerRunner:
             job.dataset_id,
             job.table_id,
             results,
+            lion_config=lion_kwargs,
+            retriever_config=effective_retriever_config,
             batch_size=prediction_batch_size,
         )
         logger.info(

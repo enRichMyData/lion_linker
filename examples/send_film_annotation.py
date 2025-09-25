@@ -246,6 +246,9 @@ def main() -> None:
                     f"{pred['column']} → {pred['answer']}" for pred in row.get("predictions", [])
                 )
                 print(f"  • {title}: {predictions or 'no predictions returned'}")
+                meta = row.get("annotationMeta")
+                if meta:
+                    print(f"    meta job={meta.get('jobId')} updatedAt={meta.get('updatedAt')}")
             break
         if status == "failed":
             raise RuntimeError(f"Annotation failed: {message}")
