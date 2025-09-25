@@ -92,7 +92,6 @@ def _build_payload(
             "tableName": table_name,
             "header": header,
             "rows": rows,
-            "kgReference": "wikidata",
             "lionConfig": lion_config,
         }
     ]

@@ -44,8 +44,7 @@ Registers one or more tables in the store. Each element matches the onboarding p
       "endpoint": "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval",
       "token": "lamapi_demo_2023",
       "num_candidates": 5
-    },
-    "kgReference": "wikidata"
+    }
   }
 ]
 ```

@@ -291,7 +291,9 @@ Example request bodies (matching the payloads from the CLI):
     "rows": [
       {"idRow": 1, "data": ["John F. Kennedy Presidential Library and Museum", "Columbia Point"]}
     ],
-    "kgReference": "wikidata"
+    "retrieverConfig": {
+      "kg": "wikidata"
+    }
   }
 ]
 ```
