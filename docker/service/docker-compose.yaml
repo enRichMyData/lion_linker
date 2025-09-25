@@ -35,9 +35,11 @@ services:
       - MONGO_URI=mongodb://mongo:27017
       - MONGO_DB=lion_linker
       - MONGO_COLLECTION_PREFIX=lion
-      - WORKSPACE_PATH=/app/data/api_runs
+      - WORKSPACE_PATH=/data/api_runs
     depends_on:
       - mongo
       - ollama
     volumes:
-      - ../../data:/app/data  # Mount the host's "data" folder to /app/data in the container
+      - ../../data:/data
+      - ../../app:/app/app
+      - ../../lion_linker:/lion_linker
