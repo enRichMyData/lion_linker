@@ -159,6 +159,8 @@ class LinkerRunner:
             job_id,
             message="Running LionLinker",
             updated_at=datetime.now(tz=timezone.utc),
+            lionConfig=dict(lion_kwargs),
+            retrieverConfig=effective_retriever_config,
         )
 
         logger.info("Job %s: launching LionLinker run", job_id)

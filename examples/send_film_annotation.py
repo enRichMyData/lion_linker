@@ -35,7 +35,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 from dotenv import load_dotenv
@@ -100,7 +100,11 @@ def _build_payload(
     return payload
 
 
-def _build_retriever_config() -> Dict[str, Any] | None:
+def _parse_bool(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _build_retriever_config() -> Optional[Dict[str, Any]]:
     config_json = os.getenv("RETRIEVER_CONFIG_JSON")
     if config_json:
         try:
@@ -112,7 +116,39 @@ def _build_retriever_config() -> Dict[str, Any] | None:
         if not isinstance(parsed, dict):
             raise ValueError("RETRIEVER_CONFIG_JSON must decode to a JSON object")
         return parsed
-    return None
+
+    config: Dict[str, Any] = {}
+
+    class_path = os.getenv("RETRIEVER_CLASS_PATH")
+    endpoint = os.getenv("RETRIEVER_ENDPOINT")
+    token = os.getenv("RETRIEVER_TOKEN")
+    num_candidates = os.getenv("RETRIEVER_NUM_CANDIDATES")
+    cache_flag = os.getenv("RETRIEVER_CACHE")
+    extra_json = os.getenv("RETRIEVER_EXTRA_JSON")
+
+    if class_path:
+        config["class_path"] = class_path
+    if endpoint:
+        config["endpoint"] = endpoint
+    if token:
+        config["token"] = token
+    if num_candidates:
+        try:
+            config["num_candidates"] = int(num_candidates)
+        except ValueError as exc:
+            raise ValueError("RETRIEVER_NUM_CANDIDATES must be an integer") from exc
+    if cache_flag:
+        config["cache"] = _parse_bool(cache_flag)
+    if extra_json:
+        try:
+            extra = json.loads(extra_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError("RETRIEVER_EXTRA_JSON must be valid JSON") from exc
+        if not isinstance(extra, dict):
+            raise ValueError("RETRIEVER_EXTRA_JSON must decode to a JSON object")
+        config.update(extra)
+
+    return config or None
 
 
 def main() -> None:

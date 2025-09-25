@@ -32,6 +32,7 @@ def default_lion_config() -> Dict[str, Any]:
 
 def default_retriever_config(kg_value: Optional[str] = None) -> Dict[str, Any]:
     return {
+        "class_path": "lion_linker.retrievers.LamapiClient",
         "kg": kg_value or DEFAULT_KG_NAME,
         "num_candidates": DEFAULT_RETRIEVER_NUM_CANDIDATES,
         "cache": DEFAULT_RETRIEVER_CACHE,

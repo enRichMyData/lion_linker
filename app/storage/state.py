@@ -212,6 +212,19 @@ class StateStore:
     ) -> JobEnqueueResponse:
         now = datetime.now(tz=timezone.utc)
         job_id = uuid.uuid4().hex
+
+        base_lion_config: Dict[str, Any] = {}
+        if table.lion_config:
+            base_lion_config.update(table.lion_config)
+        if lion_config:
+            base_lion_config.update(lion_config)
+
+        base_retriever_config: Dict[str, Any] = {}
+        if table.retriever_config:
+            base_retriever_config.update(table.retriever_config)
+        if retriever_config:
+            base_retriever_config.update(retriever_config)
+
         record = JobRecord(
             jobId=job_id,
             datasetId=table.dataset_id,
@@ -220,8 +233,8 @@ class StateStore:
             createdAt=now,
             updatedAt=now,
             token=token,
-            lionConfig=lion_config,
-            retrieverConfig=retriever_config,
+            lionConfig=base_lion_config or None,
+            retrieverConfig=base_retriever_config or None,
         )
         doc = record.model_dump(by_alias=True)
         doc["_id"] = job_id
