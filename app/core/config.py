@@ -21,11 +21,6 @@ class Settings(BaseSettings):
         default="lion", validation_alias="MONGO_COLLECTION_PREFIX"
     )
 
-    retriever_endpoint: Optional[str] = Field(default=None, validation_alias="RETRIEVER_ENDPOINT")
-    retriever_token: Optional[str] = Field(default=None, validation_alias="RETRIEVER_TOKEN")
-    retriever_num_candidates: int = Field(default=10, validation_alias="RETRIEVER_NUM_CANDIDATES")
-    retriever_cache: bool = Field(default=False, validation_alias="RETRIEVER_CACHE")
-
     queue_workers: int = Field(default=1, ge=1, validation_alias="LION_QUEUE_WORKERS")
     queue_poll_interval_seconds: float = Field(
         default=0.25, gt=0, validation_alias="LION_QUEUE_POLL_INTERVAL"
