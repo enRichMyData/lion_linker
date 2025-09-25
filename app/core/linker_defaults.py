@@ -13,6 +13,7 @@ DEFAULT_RETRIEVER_NUM_CANDIDATES = 10
 DEFAULT_RETRIEVER_CACHE = False
 DEFAULT_RETRIEVER_MAX_RETRIES = 3
 DEFAULT_RETRIEVER_BACKOFF_FACTOR = 0.5
+DEFAULT_KG_NAME = "wikidata"
 
 
 def default_lion_config() -> Dict[str, Any]:
@@ -29,9 +30,9 @@ def default_lion_config() -> Dict[str, Any]:
     return config
 
 
-def default_retriever_config(kg_reference: str) -> Dict[str, Any]:
+def default_retriever_config(kg_value: Optional[str] = None) -> Dict[str, Any]:
     return {
-        "kg": kg_reference,
+        "kg": kg_value or DEFAULT_KG_NAME,
         "num_candidates": DEFAULT_RETRIEVER_NUM_CANDIDATES,
         "cache": DEFAULT_RETRIEVER_CACHE,
         "max_retries": DEFAULT_RETRIEVER_MAX_RETRIES,

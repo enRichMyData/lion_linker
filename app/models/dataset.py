@@ -36,7 +36,6 @@ class DatasetPayload(BaseModel):
         default=None, alias="semanticAnnotations"
     )
     metadata: Dict[str, object] = Field(default_factory=dict)
-    kg_reference: str = Field(default="wikidata", alias="kgReference")
     lion_config: Optional[Dict[str, Any]] = Field(default=None, alias="lionConfig")
     retriever_config: Optional[Dict[str, Any]] = Field(default=None, alias="retrieverConfig")
 
@@ -67,7 +66,6 @@ class DatasetTableRecord(BaseModel):
     rows: List[TableRowRecord]
     semantic_annotations: Optional[SemanticAnnotationsPayload] = None
     metadata: Dict[str, object]
-    kg_reference: str
     created_at: datetime
     updated_at: datetime
     lion_config: Optional[Dict[str, Any]] = None
