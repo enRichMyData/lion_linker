@@ -1,0 +1,47 @@
+# docker/docker-compose.yml
+services:
+  mongo:
+    container_name: mongo
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - ../../data/mongo:/data/db
+
+  ollama:
+    container_name: ollama
+    image: ollama/ollama:latest  # Replace with the correct Ollama image name
+    ports:
+      - "11434:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: ["serve"]
+
+  lion:
+    container_name: lion
+    build:
+      context: ../../  # Build context is the root of your project
+      dockerfile: docker/service/Dockerfile
+    ports:
+      - "9000:9000"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - MONGO_URI=mongodb://mongo:27017
+      - MONGO_DB=lion_linker
+      - MONGO_COLLECTION_PREFIX=lion
+      - WORKSPACE_PATH=/app/data/api_runs
+      - PREDICTION_BATCH_ROWS=200
+      - RETRIEVER_ENDPOINT=https://lamapi.hel.sintef.cloud/lookup/entity-retrieval  # Replace with your actual endpoint
+      - RETRIEVER_TOKEN=lamapi_demo_2023  # Replace with your actual token
+    depends_on:
+      - mongo
+      - ollama
+    volumes:
+      - ../../data:/app/data  # Mount the host's "data" folder to /app/data in the container
+      - ../../lion_linker:/app/lion_linker   # if you want to dev on the package too
