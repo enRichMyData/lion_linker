@@ -3,7 +3,7 @@
 
 This script demonstrates how to:
 
-1. Read the sample CSV at ``data/film.csv``.
+1. Read the sample CSV at ``data/film_with_QIDs_10.csv``.
 2. Submit it to the ``POST /annotate`` endpoint.
 3. Poll ``GET /dataset/{datasetId}/table/{tableId}`` until the job finishes.
 4. Display a compact summary of the annotated rows.
@@ -18,13 +18,12 @@ Example usage::
 
 Optional environment variables:
     LION_LINKER_API_URL   Base URL for the API (default: http://localhost:9000)
-    TABLE_CSV_PATH        Path to the CSV to upload (default: data/film.csv)
+    TABLE_CSV_PATH        Path to the CSV to upload (default: data/film_with_QIDs_10.csv)
     DATASET_NAME          Dataset name to register (default: Film Demo Dataset)
     TABLE_NAME            Table name to register (default: derived from CSV filename)
     OPENROUTER_MODEL_NAME OpenRouter model alias (default: anthropic/claude-3-haiku)
     ANNOTATION_TOKEN      Optional token passed as ?token= value on submission
     POLL_INTERVAL_SECONDS Delay between status polls (default: 5)
-    RETRIEVER_CONFIG_JSON Optional JSON object with retriever configuration, sent in payload
 """
 
 from __future__ import annotations
@@ -105,18 +104,6 @@ def _parse_bool(value: str) -> bool:
 
 
 def _build_retriever_config() -> Optional[Dict[str, Any]]:
-    config_json = os.getenv("RETRIEVER_CONFIG_JSON")
-    if config_json:
-        try:
-            parsed = json.loads(config_json)
-        except json.JSONDecodeError as exc:  # pragma: no cover
-            raise ValueError(
-                "RETRIEVER_CONFIG_JSON must be valid JSON representing an object"
-            ) from exc
-        if not isinstance(parsed, dict):
-            raise ValueError("RETRIEVER_CONFIG_JSON must decode to a JSON object")
-        return parsed
-
     config: Dict[str, Any] = {}
 
     class_path = os.getenv("RETRIEVER_CLASS_PATH")
@@ -153,7 +140,7 @@ def _build_retriever_config() -> Optional[Dict[str, Any]]:
 
 def main() -> None:
     api_url = os.getenv("LION_LINKER_API_URL", DEFAULT_API_URL).rstrip("/")
-    csv_path = Path(os.getenv("TABLE_CSV_PATH", "data/film.csv"))
+    csv_path = Path(os.getenv("TABLE_CSV_PATH", "data/film_with_QIDs_10.csv"))
     dataset_name = os.getenv("DATASET_NAME", "Film Demo Dataset")
     table_name = os.getenv("TABLE_NAME", csv_path.stem)
     model_name = os.getenv("OPENROUTER_MODEL_NAME", DEFAULT_MODEL_NAME)
