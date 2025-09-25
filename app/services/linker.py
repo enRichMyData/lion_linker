@@ -15,7 +15,7 @@ import pandas as pd
 from app.core import linker_defaults
 from app.core.config import Settings, settings
 from app.models.dataset import DatasetTableRecord
-from app.models.jobs import JobStatus, PredictionSummary, ResultRow
+from app.models.jobs import JobRecord, JobStatus, PredictionSummary, ResultRow
 from app.storage.state import StateStore
 from lion_linker.lion_linker import LionLinker
 from lion_linker.retrievers import LamapiClient, RetrieverClient
@@ -55,6 +55,11 @@ class LinkerRunner:
     def __init__(self, store: StateStore, app_settings: Settings | None = None):
         self.store = store
         self.settings = app_settings or settings
+        self._provider_limits: Dict[str, asyncio.Semaphore] = {}
+        self._fallback_provider_limit: Optional[asyncio.Semaphore] = None
+        if self.settings.queue_workers > 1:
+            self._provider_limits["openrouter"] = asyncio.Semaphore(self.settings.queue_workers)
+            self._fallback_provider_limit = asyncio.Semaphore(1)
 
     async def run_job(self, job_id: str) -> None:
         job = await self.store.get_job(job_id)
@@ -155,68 +160,32 @@ class LinkerRunner:
         if gt_columns is not None:
             lion_kwargs["gt_columns"] = gt_columns
 
-        await self.store.update_job(
-            job_id,
-            message="Running LionLinker",
-            updated_at=datetime.now(tz=timezone.utc),
-            lionConfig=dict(lion_kwargs),
-            retrieverConfig=effective_retriever_config,
-        )
+        provider = lion_kwargs.get("model_api_provider") or self.DEFAULT_MODEL_PROVIDER
+        limiter = self._provider_limits.get(provider) or self._fallback_provider_limit
 
-        logger.info("Job %s: launching LionLinker run", job_id)
-        lion = self._build_lion_linker(
-            paths,
-            table,
-            retriever,
-            lion_kwargs,
-            effective_retriever_config,
-        )
-
-        await asyncio.to_thread(self._run_lion_linker_blocking, lion)
-        logger.info("Job %s: LionLinker run finished", job_id)
-
-        results = self._parse_results(paths.output_csv, table, mention_columns)
-        logger.info("Job %s: parsed %d result rows", job_id, len(results))
-
-        prediction_batch_size = self._int_option(
-            lion_config,
-            ["prediction_batch_size", "predictionBatchSize"],
-            self.settings.prediction_batch_rows,
-        )
-        if prediction_batch_size is None or prediction_batch_size < 1:
-            prediction_batch_size = self.settings.prediction_batch_rows
-
-        prediction_batches = await self.store.save_predictions(
-            job_id,
-            job.dataset_id,
-            job.table_id,
-            results,
-            batch_size=prediction_batch_size,
-        )
-        logger.info(
-            "Job %s: saved predictions (batches=%d, batch_size=%d)",
-            job_id,
-            prediction_batches,
-            prediction_batch_size,
-        )
-
-        await self._write_results(paths.result_json, results)
-        await self.store.set_job_result(
-            job_id,
-            output_path=paths.output_csv,
-            result_path=paths.result_json,
-            total_rows=len(results),
-            processed_rows=len(results),
-        )
-        await self.store.update_job(
-            job_id,
-            status=JobStatus.completed,
-            message="Linking completed",
-            updated_at=datetime.now(tz=timezone.utc),
-            prediction_batches=prediction_batches,
-            prediction_batch_size=prediction_batch_size,
-        )
-        logger.info("Job %s: marked as completed", job_id)
+        if limiter:
+            async with limiter:
+                await self._execute_job(
+                    job,
+                    table,
+                    paths,
+                    mention_columns,
+                    lion_config,
+                    lion_kwargs,
+                    retriever,
+                    effective_retriever_config,
+                )
+        else:
+            await self._execute_job(
+                job,
+                table,
+                paths,
+                mention_columns,
+                lion_config,
+                lion_kwargs,
+                retriever,
+                effective_retriever_config,
+            )
 
     @staticmethod
     def _run_lion_linker_blocking(lion: LionLinker) -> None:
@@ -299,6 +268,82 @@ class LinkerRunner:
         module_name, class_name = path.rsplit(".", 1)
         module = import_module(module_name)
         return getattr(module, class_name)
+
+    async def _execute_job(
+        self,
+        job: JobRecord,
+        table: DatasetTableRecord,
+        paths: JobPaths,
+        mention_columns: List[str],
+        lion_config: Dict[str, Any],
+        lion_kwargs: Dict[str, Any],
+        retriever: RetrieverClient,
+        effective_retriever_config: Dict[str, Any],
+    ) -> None:
+        job_id = job.job_id
+
+        await self.store.update_job(
+            job_id,
+            message="Running LionLinker",
+            updated_at=datetime.now(tz=timezone.utc),
+            lionConfig=dict(lion_kwargs),
+            retrieverConfig=effective_retriever_config,
+        )
+
+        logger.info("Job %s: launching LionLinker run", job_id)
+        lion = self._build_lion_linker(
+            paths,
+            table,
+            retriever,
+            lion_kwargs,
+            effective_retriever_config,
+        )
+
+        await asyncio.to_thread(self._run_lion_linker_blocking, lion)
+        logger.info("Job %s: LionLinker run finished", job_id)
+
+        results = self._parse_results(paths.output_csv, table, mention_columns)
+        logger.info("Job %s: parsed %d result rows", job_id, len(results))
+
+        prediction_batch_size = self._int_option(
+            lion_config,
+            ["prediction_batch_size", "predictionBatchSize"],
+            self.settings.prediction_batch_rows,
+        )
+        if prediction_batch_size is None or prediction_batch_size < 1:
+            prediction_batch_size = self.settings.prediction_batch_rows
+
+        prediction_batches = await self.store.save_predictions(
+            job_id,
+            job.dataset_id,
+            job.table_id,
+            results,
+            batch_size=prediction_batch_size,
+        )
+        logger.info(
+            "Job %s: saved predictions (batches=%d, batch_size=%d)",
+            job_id,
+            prediction_batches,
+            prediction_batch_size,
+        )
+
+        await self._write_results(paths.result_json, results)
+        await self.store.set_job_result(
+            job_id,
+            output_path=paths.output_csv,
+            result_path=paths.result_json,
+            total_rows=len(results),
+            processed_rows=len(results),
+        )
+        await self.store.update_job(
+            job_id,
+            status=JobStatus.completed,
+            message="Linking completed",
+            updated_at=datetime.now(tz=timezone.utc),
+            prediction_batches=prediction_batches,
+            prediction_batch_size=prediction_batch_size,
+        )
+        logger.info("Job %s: marked as completed", job_id)
 
     def _build_retriever(
         self,

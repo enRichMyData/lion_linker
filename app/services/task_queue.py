@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections import deque
-from typing import Awaitable, Callable, Deque, Optional
+from typing import Awaitable, Callable, Deque, List
 
 from app.models.jobs import JobStatus
 from app.storage.state import StateStore
@@ -14,27 +14,39 @@ JobHandler = Callable[[str], Awaitable[None]]
 class TaskQueue:
     """Simple FIFO queue that processes jobs sequentially in the background."""
 
-    def __init__(self, store: StateStore, handler: JobHandler, *, poll_interval: float = 0.25):
+    def __init__(
+        self,
+        store: StateStore,
+        handler: JobHandler,
+        *,
+        poll_interval: float = 0.25,
+        workers: int = 1,
+    ):
         self._store = store
         self._handler = handler
         self._poll_interval = poll_interval
         self._queue: asyncio.Queue[str] = asyncio.Queue()
-        self._worker_task: Optional[asyncio.Task[None]] = None
+        self._worker_tasks: List[asyncio.Task[None]] = []
         self._stop_event = asyncio.Event()
         self._recent_jobs: Deque[str] = deque(maxlen=256)
+        self._worker_count = max(1, workers)
 
     async def start(self) -> None:
-        if self._worker_task is not None and not self._worker_task.done():
+        if any(task for task in self._worker_tasks if not task.done()):
             return
         self._stop_event.clear()
-        self._worker_task = asyncio.create_task(self._run())
+        self._worker_tasks = [
+            asyncio.create_task(self._run(), name=f"task-queue-worker-{idx}")
+            for idx in range(self._worker_count)
+        ]
 
     async def stop(self) -> None:
         self._stop_event.set()
-        if self._worker_task:
-            self._worker_task.cancel()
+        for task in self._worker_tasks:
+            task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await self._worker_task
+                await task
+        self._worker_tasks.clear()
 
     async def enqueue(self, job_id: str) -> None:
         if job_id in self._recent_jobs:

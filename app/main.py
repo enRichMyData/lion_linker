@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Response
@@ -11,11 +12,30 @@ from app.dependencies import get_store, set_task_queue
 from app.services.linker import LinkerRunner
 from app.services.task_queue import TaskQueue
 
-app = FastAPI(title=settings.app_name, version=settings.version)
-app.include_router(router)
 
-_runner: LinkerRunner | None = None
-_queue: TaskQueue | None = None
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    store = get_store()
+    await store.ensure_indexes()
+
+    runner = LinkerRunner(store=store, app_settings=settings)
+    queue = TaskQueue(
+        store=store,
+        handler=runner.run_job,
+        poll_interval=settings.queue_poll_interval_seconds,
+        workers=settings.queue_workers,
+    )
+    set_task_queue(queue)
+    await queue.start()
+    try:
+        yield
+    finally:
+        await queue.stop()
+        await store.close()
+
+
+app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan)
+app.include_router(router)
 
 
 @app.get("/docs/reference", response_class=HTMLResponse)
@@ -24,28 +44,3 @@ async def custom_docs() -> Response:
     if reference_path.exists():
         return HTMLResponse(reference_path.read_text(encoding="utf-8"))
     return HTMLResponse("<h1>Documentation not available</h1>", status_code=503)
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    global _runner, _queue
-    store = get_store()
-    await store.ensure_indexes()
-    _runner = LinkerRunner(store=store, app_settings=settings)
-    _queue = TaskQueue(
-        store=store,
-        handler=_runner.run_job,
-        poll_interval=settings.queue_poll_interval_seconds,
-    )
-    set_task_queue(_queue)
-    await _queue.start()
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    global _queue
-    if _queue:
-        await _queue.stop()
-        _queue = None
-    store = get_store()
-    await store.close()
