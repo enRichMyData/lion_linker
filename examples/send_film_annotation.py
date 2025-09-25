@@ -24,6 +24,7 @@ Optional environment variables:
     OPENROUTER_MODEL_NAME OpenRouter model alias (default: anthropic/claude-3-haiku)
     ANNOTATION_TOKEN      Optional token passed as ?token= value on submission
     POLL_INTERVAL_SECONDS Delay between status polls (default: 5)
+    RETRIEVER_CONFIG_JSON Optional JSON object with retriever configuration, sent in payload
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 DEFAULT_API_URL = "http://localhost:9000"
-DEFAULT_MODEL_NAME = "anthropic/claude-3-haiku"
+DEFAULT_MODEL_NAME = "openai/gpt-5-mini"
 DEFAULT_POLL_INTERVAL = 5.0
 
 
@@ -59,7 +60,7 @@ def _read_table(csv_path: Path) -> tuple[List[str], List[Dict[str, Any]]]:
 
         rows: List[Dict[str, Any]] = []
         for idx, row in enumerate(reader, start=1):
-            rows.append({"idRow": idx, "data": row})
+            rows.append({"idRow": idx - 1, "data": row})
 
     return header, rows
 
@@ -112,47 +113,7 @@ def _build_retriever_config() -> Dict[str, Any] | None:
         if not isinstance(parsed, dict):
             raise ValueError("RETRIEVER_CONFIG_JSON must decode to a JSON object")
         return parsed
-
-    mapping = {
-        "RETRIEVER_CLASS_PATH": "class_path",
-        "RETRIEVER_ENDPOINT": "endpoint",
-        "RETRIEVER_TOKEN": "token",
-        "RETRIEVER_KG": "kg",
-    }
-    config: Dict[str, Any] = {}
-    for env_var, key in mapping.items():
-        value = os.getenv(env_var)
-        if value:
-            config[key] = value
-
-    num_candidates = os.getenv("RETRIEVER_NUM_CANDIDATES")
-    if num_candidates:
-        try:
-            config["num_candidates"] = int(num_candidates)
-        except ValueError:
-            raise ValueError("RETRIEVER_NUM_CANDIDATES must be an integer") from None
-
-    cache_flag = os.getenv("RETRIEVER_CACHE")
-    if cache_flag:
-        cache_flag_lower = cache_flag.strip().lower()
-        if cache_flag_lower in {"1", "true", "yes"}:
-            config["cache"] = True
-        elif cache_flag_lower in {"0", "false", "no"}:
-            config["cache"] = False
-        else:
-            raise ValueError("RETRIEVER_CACHE must be one of: 1, 0, true, false, yes, no")
-
-    extra_json = os.getenv("RETRIEVER_EXTRA_JSON")
-    if extra_json:
-        try:
-            extra = json.loads(extra_json)
-        except json.JSONDecodeError as exc:
-            raise ValueError("RETRIEVER_EXTRA_JSON must be valid JSON") from exc
-        if not isinstance(extra, dict):
-            raise ValueError("RETRIEVER_EXTRA_JSON must decode to a JSON object")
-        config.update(extra)
-
-    return config or None
+    return None
 
 
 def main() -> None:
@@ -205,12 +166,17 @@ def main() -> None:
     status_url = f"{api_url}/dataset/{dataset_id}/table/{table_id}"
     while True:
         time.sleep(poll_interval)
-        status_response = requests.get(
-            status_url,
-            params={"page": 1, "per_page": 50},
-            timeout=60,
-        )
-        status_response.raise_for_status()
+        try:
+            status_response = requests.get(
+                status_url,
+                params={"page": 1, "per_page": 50},
+                timeout=(5, 180),
+            )
+            status_response.raise_for_status()
+        except requests.exceptions.ReadTimeout:
+            print("Status request timed out; will retry on next poll...")
+            continue
+
         status_payload = status_response.json()
 
         status = status_payload.get("status")
@@ -232,7 +198,7 @@ def main() -> None:
 
     info_response = requests.get(
         f"{api_url}/annotate/{job_id}",
-        timeout=60,
+        timeout=(5, 60),
         params={"token": token} if token else None,
     )
     info_response.raise_for_status()
