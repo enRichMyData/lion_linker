@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, Iterable, List, Optional, cast
 
 import pandas as pd
 
@@ -81,7 +81,8 @@ class LinkerRunner:
 
         paths = self._prepare_paths(job.job_id, table)
         df = StateStore.dataframe_from_payload(table)
-        await asyncio.to_thread(df.to_csv, paths.input_csv, index=False)
+        df_for_lion = df.drop(columns=["id_row"], errors="ignore")
+        await asyncio.to_thread(df_for_lion.to_csv, paths.input_csv, index=False)
 
         if dry_run:
             results = self._build_nil_results(table, mention_columns)
@@ -159,11 +160,14 @@ class LinkerRunner:
             updated_at=datetime.now(tz=timezone.utc),
         )
 
+        logger.info("Job %s: launching LionLinker run", job_id)
         lion = self._build_lion_linker(paths, table, retriever, lion_kwargs)
 
-        await lion.run()
+        await asyncio.to_thread(self._run_lion_linker_blocking, lion)
+        logger.info("Job %s: LionLinker run finished", job_id)
 
         results = self._parse_results(paths.output_csv, table, mention_columns)
+        logger.info("Job %s: parsed %d result rows", job_id, len(results))
 
         prediction_batch_size = self._int_option(
             lion_config,
@@ -180,6 +184,12 @@ class LinkerRunner:
             results,
             batch_size=prediction_batch_size,
         )
+        logger.info(
+            "Job %s: saved predictions (batches=%d, batch_size=%d)",
+            job_id,
+            prediction_batches,
+            prediction_batch_size,
+        )
 
         await self._write_results(paths.result_json, results)
         await self.store.set_job_result(
@@ -194,9 +204,14 @@ class LinkerRunner:
             status=JobStatus.completed,
             message="Linking completed",
             updated_at=datetime.now(tz=timezone.utc),
-            predictionBatches=prediction_batches,
-            predictionBatchSize=prediction_batch_size,
+            prediction_batches=prediction_batches,
+            prediction_batch_size=prediction_batch_size,
         )
+        logger.info("Job %s: marked as completed", job_id)
+
+    @staticmethod
+    def _run_lion_linker_blocking(lion: LionLinker) -> None:
+        asyncio.run(lion.run())
 
     @staticmethod
     def _merge_configs(*configs: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -372,11 +387,15 @@ class LinkerRunner:
             if columns:
                 return columns
         metadata = table.metadata or {}
-        mention_columns = metadata.get("mentionColumns") or metadata.get("mention_columns")
-        if isinstance(mention_columns, str):
-            mention_columns = [mention_columns]
-        if mention_columns:
-            columns = [col for col in mention_columns if col in table.header]
+        raw_mention_columns = metadata.get("mentionColumns") or metadata.get("mention_columns")
+        mention_columns_list: List[str] = []
+        if isinstance(raw_mention_columns, str):
+            mention_columns_list = [raw_mention_columns]
+        elif isinstance(raw_mention_columns, Iterable):
+            mention_columns_list = [str(col) for col in raw_mention_columns if col is not None]
+
+        if mention_columns_list:
+            columns = [col for col in mention_columns_list if col in table.header]
             if columns:
                 return columns
 
