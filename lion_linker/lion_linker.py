@@ -104,6 +104,7 @@ class LionLinker:
                       - prediction_suffix: Suffix for prediction column names
                       - kg_name: Name of the knowledge graph being used
                       - compute_table_summary: Whether to create table summary or not
+                      - target_rows_ids: an iterable specifying a subset of rows to be processed
         """
 
         if not os.path.exists(input_csv) or os.path.splitext(input_csv)[1] != ".csv":
@@ -150,6 +151,13 @@ class LionLinker:
         self._mention_to_qids = kwargs.get("mention_to_qids", {})
         self.prediction_suffix = kwargs.get("prediction_suffix", "_pred_id")
         self.kg_name = kwargs.get("kg_name", "generic")
+        self._target_row_ids: set[int] | None = None
+        target_rows = kwargs.get("target_row_ids")
+        if target_rows is not None:
+            try:
+                self._target_row_ids = {int(r) for r in target_rows}
+            except (TypeError, ValueError) as exc:
+                raise ValueError("target_row_ids must be an iterable of integers") from exc
 
         # TableLlama checks
         if "osunlp" in model_name:
@@ -205,21 +213,35 @@ class LionLinker:
             raise ValueError(f"Columns not found: {', '.join(missing_columns)}")
 
         column_to_index = {col: id_col for id_col, col in enumerate(chunk.columns)}
+        if self._target_row_ids is not None:
+            target_mask = chunk.index.isin(self._target_row_ids)
+            mention_source = chunk[target_mask]
+        else:
+            mention_source = chunk
+
         mentions = []
         for column in self.mention_columns:
-            mentions.extend(chunk[column].dropna().unique())
+            mentions.extend(mention_source[column].dropna().unique())
 
         # Run the async fetch candidates function with the hidden mention_to_qids parameter
         kwargs = {}
         if self._mention_to_qids:
             kwargs["mention_to_qids"] = self._mention_to_qids
 
-        mentions_to_candidates = await self.retriever.fetch_multiple_entities(mentions, **kwargs)
+        if mentions:
+            mentions_to_candidates = await self.retriever.fetch_multiple_entities(
+                mentions, **kwargs
+            )
+        else:
+            mentions_to_candidates = {}
 
         # Group results by row ID
         results_by_row = {}
 
+        target_ids = self._target_row_ids
         for loc_idx, (id_row, row) in enumerate(chunk.iterrows()):
+            if target_ids is not None and id_row not in target_ids:
+                continue
             table_view = chunk.iloc[
                 max(0, loc_idx - self.table_ctx_size) : loc_idx + self.table_ctx_size + 1
             ]
@@ -488,6 +510,8 @@ class LionLinker:
         actual_rows_processed = 0
 
         # Proceed with batch processing
+        wrote_header = False
+
         with pd.read_csv(self.input_csv, chunksize=self.chunk_size) as reader:
             for chunk_id, chunk in enumerate(reader):
                 batch_results = await self.process_chunk(chunk)
@@ -497,9 +521,20 @@ class LionLinker:
                 if "id_row" not in chunk.columns:
                     chunk = chunk.reset_index().rename(columns={"index": "id_row"})
                 merged_chunk = chunk.merge(batch_results, on="id_row", how="left")
-                merged_chunk = merged_chunk.drop(columns=["id_row"])
 
-                if chunk_id == 0:
+                actual_rows_processed += len(chunk)
+                pbar.update(len(chunk))
+                if actual_rows_processed > estimated_total_rows:
+                    pbar.total = actual_rows_processed
+                    pbar.refresh()
+
+                if self._target_row_ids is not None:
+                    merged_chunk = merged_chunk[merged_chunk["id_row"].isin(self._target_row_ids)]
+
+                if merged_chunk.empty:
+                    continue
+
+                if not wrote_header:
                     # Write the header for the first chunk
                     merged_chunk.to_csv(
                         self.output_csv,
@@ -508,6 +543,7 @@ class LionLinker:
                         quoting=1,
                         escapechar="\\",
                     )
+                    wrote_header = True
                 else:
                     # Append results to CSV, ensuring proper handling of newlines
                     merged_chunk.to_csv(
@@ -518,15 +554,6 @@ class LionLinker:
                         quoting=1,
                         escapechar="\\",
                     )
-
-                # Update the progress bar with the actual number of rows processed
-                actual_rows_processed += len(chunk)
-                pbar.update(len(chunk))
-
-                # If actual rows exceed estimated, adjust the progress bar total
-                if actual_rows_processed > estimated_total_rows:
-                    pbar.total = actual_rows_processed
-                    pbar.refresh()
 
         # Ensure the progress bar reaches 100%
         pbar.n = pbar.total
