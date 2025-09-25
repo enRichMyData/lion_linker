@@ -209,6 +209,7 @@ class StateStore:
         token: Optional[str] = None,
         lion_config: Optional[Dict[str, Any]] = None,
         retriever_config: Optional[Dict[str, Any]] = None,
+        row_ids: Optional[List[int]] = None,
     ) -> JobEnqueueResponse:
         now = datetime.now(tz=timezone.utc)
         job_id = uuid.uuid4().hex
@@ -225,6 +226,12 @@ class StateStore:
         if retriever_config:
             base_retriever_config.update(retriever_config)
 
+        row_ids_clean: Optional[List[int]] = None
+        if row_ids:
+            row_ids_clean = sorted({int(r) for r in row_ids})
+
+        total_rows = len(row_ids_clean) if row_ids_clean else None
+
         record = JobRecord(
             jobId=job_id,
             datasetId=table.dataset_id,
@@ -235,6 +242,8 @@ class StateStore:
             token=token,
             lionConfig=base_lion_config or None,
             retrieverConfig=base_retriever_config or None,
+            rowIds=row_ids_clean,
+            totalRows=total_rows,
         )
         doc = record.model_dump(by_alias=True)
         doc["_id"] = job_id
@@ -245,6 +254,7 @@ class StateStore:
             tableId=table.table_id,
             status=record.status,
             createdAt=now,
+            rowIds=row_ids_clean,
         )
 
     async def update_job(self, job_id: str, **updates) -> None:
@@ -321,22 +331,35 @@ class StateStore:
         return math.ceil(len(rows) / batch_size) if rows else 0
 
     async def get_predictions_page(
-        self, dataset_id: str, table_id: str, page: int, per_page: int
+        self,
+        dataset_id: str,
+        table_id: str,
+        page: int,
+        per_page: int,
+        row_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
         if page < 1 or per_page < 1:
             return []
 
-        skip = (page - 1) * per_page
-        cursor = (
-            self._table_rows.find({"datasetId": dataset_id, "tableId": table_id})
-            .sort("idRow", ASCENDING)
-            .skip(skip)
-            .limit(per_page)
-        )
-
-        docs = await cursor.to_list(length=per_page)
-
         collected: List[Dict[str, Any]] = []
+        query: Dict[str, Any] = {"datasetId": dataset_id, "tableId": table_id}
+
+        if row_ids:
+            row_id_list = sorted({int(rid) for rid in row_ids})
+            if not row_id_list:
+                return []
+            query["idRow"] = {"$in": row_id_list}
+            cursor = self._table_rows.find(query).sort("idRow", ASCENDING)
+            docs_all = await cursor.to_list(length=None)
+            start = (page - 1) * per_page
+            docs = docs_all[start : start + per_page]
+        else:
+            skip = (page - 1) * per_page
+            cursor = (
+                self._table_rows.find(query).sort("idRow", ASCENDING).skip(skip).limit(per_page)
+            )
+            docs = await cursor.to_list(length=per_page)
+
         for doc in docs:
             collected.append(
                 {

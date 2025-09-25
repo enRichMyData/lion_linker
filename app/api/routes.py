@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from app.dependencies import get_store, get_task_queue
 from app.models.dataset import DatasetPayload, DatasetResponse
@@ -56,12 +57,30 @@ def _require_snake_case(config: Optional[dict], context: str) -> None:
             )
 
 
+class TableAnnotationRequest(BaseModel):
+    row_ids: Optional[List[int]] = Field(default=None, alias="rowIds")
+    lion_config: Optional[Dict[str, Any]] = Field(default=None, alias="lionConfig")
+    retriever_config: Optional[Dict[str, Any]] = Field(default=None, alias="retrieverConfig")
+    token: Optional[str] = None
+
+
 @router.post("/dataset", response_model=List[DatasetResponse])
 async def register_dataset(
     payload: List[DatasetPayload],
     store: StateStore = Depends(get_store),
 ) -> List[DatasetResponse]:
     responses = []
+    for item in payload:
+        responses.append(await store.upsert_dataset(item))
+    return responses
+
+
+@router.post("/datasets", response_model=List[DatasetResponse])
+async def register_datasets(
+    payload: List[DatasetPayload],
+    store: StateStore = Depends(get_store),
+) -> List[DatasetResponse]:
+    responses: List[DatasetResponse] = []
     for item in payload:
         responses.append(await store.upsert_dataset(item))
     return responses
@@ -85,10 +104,55 @@ async def annotate_tables(
             token=token,
             lion_config=item.lion_config,
             retriever_config=item.retriever_config,
+            row_ids=None,
         )
         responses.append(job)
         await queue.enqueue(job.jobId)
     return responses
+
+
+@router.post(
+    "/datasets/{dataset_id}/tables/{table_id}/annotate",
+    response_model=JobEnqueueResponse,
+)
+async def annotate_table_subset(
+    dataset_id: str,
+    table_id: str,
+    request: TableAnnotationRequest,
+    store: StateStore = Depends(get_store),
+    queue: TaskQueue = Depends(get_task_queue),
+) -> JobEnqueueResponse:
+    try:
+        table = await store.get_table(dataset_id, table_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Dataset or table not found") from exc
+
+    row_ids_clean: Optional[List[int]] = None
+    if request.row_ids:
+        try:
+            row_ids_clean = sorted({int(rid) for rid in request.row_ids})
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="rowIds must be integers") from exc
+        existing_ids = {row.id_row for row in table.rows}
+        missing = [rid for rid in row_ids_clean if rid not in existing_ids]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Rows not found for table {table_id}: {missing}",
+            )
+
+    _require_snake_case(request.lion_config, "lionConfig")
+    _require_snake_case(request.retriever_config, "retrieverConfig")
+
+    job = await store.create_job(
+        table,
+        token=request.token,
+        lion_config=request.lion_config,
+        retriever_config=request.retriever_config,
+        row_ids=row_ids_clean,
+    )
+    await queue.enqueue(job.jobId)
+    return job
 
 
 @router.get("/dataset/{dataset_id}/table/{table_id}", response_model=JobStatusResponse)
@@ -117,7 +181,7 @@ async def job_status(
     rows: List[ResultRow] = []
     if job.status == JobStatus.completed:
         predictions = await store.get_predictions_page(
-            job.dataset_id, job.table_id, page, per_page
+            job.dataset_id, job.table_id, page, per_page, row_ids=job.row_ids
         )
         if predictions:
             rows = [ResultRow.model_validate(item) for item in predictions]
@@ -141,6 +205,7 @@ async def job_status(
         updatedAt=job.updated_at,
         predictionBatches=job.prediction_batches,
         predictionBatchSize=job.prediction_batch_size,
+        rowIds=job.row_ids,
     )
     return response
 
@@ -181,4 +246,5 @@ async def annotation_info(
         retrieverConfig=job.retriever_config,
         predictionBatches=job.prediction_batches,
         predictionBatchSize=job.prediction_batch_size,
+        rowIds=job.row_ids,
     )

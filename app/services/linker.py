@@ -81,7 +81,7 @@ class LinkerRunner:
         await self.store.update_job(
             job_id,
             message="Preparing data for LionLinker",
-            total_rows=len(table.rows),
+            total_rows=len(job.row_ids) if job.row_ids else len(table.rows),
             updated_at=datetime.now(tz=timezone.utc),
         )
 
@@ -159,6 +159,9 @@ class LinkerRunner:
         gt_columns = self._list_option(lion_config, ["gt_columns"], None)
         if gt_columns is not None:
             lion_kwargs["gt_columns"] = gt_columns
+
+        if job.row_ids:
+            lion_kwargs["target_row_ids"] = job.row_ids
 
         provider = lion_kwargs.get("model_api_provider") or self.DEFAULT_MODEL_PROVIDER
         limiter = self._provider_limits.get(provider) or self._fallback_provider_limit
@@ -507,15 +510,30 @@ class LinkerRunner:
         mention_columns: List[str],
     ) -> List[ResultRow]:
         df = pd.read_csv(output_csv)
-        if len(df) != len(table.rows):
-            logger.warning(
-                "Output row count %s does not match original rows %s",
-                len(df),
-                len(table.rows),
-            )
+        if "id_row" not in df.columns:
+            raise ValueError("Result CSV must include an 'id_row' column")
+
         results: List[ResultRow] = []
         header = table.header
-        for row_payload, (_, row_series) in zip(table.rows, df.iterrows()):
+        row_lookup = {row.id_row: row for row in table.rows}
+
+        for _, row_series in df.iterrows():
+            try:
+                id_row = int(row_series.get("id_row"))
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Skipping row with invalid id_row value: %s", row_series.get("id_row")
+                )
+                continue
+
+            if id_row not in row_lookup:
+                logger.warning(
+                    "Skipping row %s from output that does not exist in table %s",
+                    id_row,
+                    table.table_id,
+                )
+                continue
+
             data: List[str] = []
             for column in header:
                 value = row_series.get(column)
@@ -530,9 +548,9 @@ class LinkerRunner:
                 identifier = row_series.get(f"{column}_pred_id")
                 answer_str = answer.strip() if isinstance(answer, str) else None
                 identifier_str = identifier.strip() if isinstance(identifier, str) else None
-                if answer_str is None and not pd.isna(answer):
+                if answer_str is None and answer is not None and not pd.isna(answer):
                     answer_str = str(answer)
-                if identifier_str is None and not pd.isna(identifier):
+                if identifier_str is None and identifier is not None and not pd.isna(identifier):
                     identifier_str = str(identifier)
                 predictions.append(
                     PredictionSummary(
@@ -542,5 +560,6 @@ class LinkerRunner:
                     )
                 )
 
-            results.append(ResultRow(idRow=row_payload.id_row, data=data, predictions=predictions))
+            results.append(ResultRow(idRow=id_row, data=data, predictions=predictions))
+
         return results
