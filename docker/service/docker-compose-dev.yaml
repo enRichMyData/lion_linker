@@ -36,6 +36,7 @@ services:
       - MONGO_DB=lion_linker
       - MONGO_COLLECTION_PREFIX=lion
       - WORKSPACE_PATH=/data/api_runs
+      - LION_QUEUE_WORKERS=4
     depends_on:
       - mongo
       - ollama
