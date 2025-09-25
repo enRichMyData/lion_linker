@@ -36,6 +36,7 @@ services:
       - MONGO_DB=lion_linker
       - MONGO_COLLECTION_PREFIX=lion
       - WORKSPACE_PATH=/app/data/api_runs
+      - PREDICTION_BATCH_ROWS=200
       - RETRIEVER_ENDPOINT=https://lamapi.hel.sintef.cloud/lookup/entity-retrieval  # Replace with your actual endpoint
       - RETRIEVER_TOKEN=lamapi_demo_2023  # Replace with your actual token
     depends_on:

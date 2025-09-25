@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from pathlib import Path
+
+from fastapi import FastAPI, Response
+from fastapi.responses import HTMLResponse
 
 from app.api.routes import router
 from app.core.config import settings
@@ -13,6 +16,14 @@ app.include_router(router)
 
 _runner: LinkerRunner | None = None
 _queue: TaskQueue | None = None
+
+
+@app.get("/docs/reference", response_class=HTMLResponse)
+async def custom_docs() -> Response:
+    reference_path = Path(__file__).resolve().parent.parent / "docs" / "static" / "reference.html"
+    if reference_path.exists():
+        return HTMLResponse(reference_path.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>Documentation not available</h1>", status_code=503)
 
 
 @app.on_event("startup")

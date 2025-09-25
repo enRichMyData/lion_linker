@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import pandas as pd
 
@@ -43,6 +43,14 @@ class JobPaths:
 
 
 class LinkerRunner:
+    DEFAULT_MODEL_NAME = "gemma2:2b"
+    DEFAULT_MODEL_PROVIDER = "ollama"
+    DEFAULT_CHUNK_SIZE = 64
+    DEFAULT_TABLE_CTX_SIZE = 1
+    DEFAULT_OLLAMA_HOST: Optional[str] = "http://ollama:11434"
+    DEFAULT_FORMAT_CANDIDATES = True
+    DEFAULT_COMPACT_CANDIDATES = True
+
     def __init__(self, store: StateStore, app_settings: Settings | None = None):
         self.store = store
         self.settings = app_settings or settings
@@ -54,7 +62,10 @@ class LinkerRunner:
         lion_config = self._merge_configs(table.lion_config, job.lion_config)
         retriever_config = self._merge_configs(table.retriever_config, job.retriever_config)
 
-        mention_override = self._list_option(lion_config, ["mention_columns", "mentionColumns"])
+        mention_override = cast(
+            Optional[List[str]],
+            self._list_option(lion_config, ["mention_columns"]),
+        )
         mention_columns = self._resolve_mention_columns(table, override=mention_override)
         if not mention_columns:
             raise ValueError("No mention columns available for table")
@@ -92,69 +103,54 @@ class LinkerRunner:
 
         retriever = self._build_retriever(table, retriever_config)
 
-        chunk_size = self._int_option(
-            lion_config, ["chunk_size", "chunkSize"], self.settings.chunk_size
-        )
+        chunk_size = self._int_option(lion_config, ["chunk_size"], self.DEFAULT_CHUNK_SIZE)
         if chunk_size is None or chunk_size < 1:
-            chunk_size = 1
+            chunk_size = self.DEFAULT_CHUNK_SIZE
 
         table_ctx_size = self._int_option(
-            lion_config, ["table_ctx_size", "tableCtxSize"], self.settings.table_ctx_size
+            lion_config, ["table_ctx_size"], self.DEFAULT_TABLE_CTX_SIZE
         )
         if table_ctx_size is None or table_ctx_size < 0:
-            table_ctx_size = 0
+            table_ctx_size = self.DEFAULT_TABLE_CTX_SIZE
 
-        model_name = self._get_option(
-            lion_config, ["model_name", "modelName"], self.settings.model_name
-        )
-        model_api_provider = self._get_option(
+        lion_kwargs: Dict[str, Any] = {}
+
+        model_name = self._get_option(lion_config, ["model_name"], self.DEFAULT_MODEL_NAME)
+        lion_kwargs["model_name"] = model_name or self.DEFAULT_MODEL_NAME
+
+        lion_kwargs["chunk_size"] = chunk_size
+        lion_kwargs["table_ctx_size"] = table_ctx_size
+        lion_kwargs["mention_columns"] = mention_columns
+
+        lion_kwargs["model_api_provider"] = self._get_option(
             lion_config,
-            ["model_api_provider", "modelApiProvider"],
-            self.settings.model_api_provider,
+            ["model_api_provider"],
+            self.DEFAULT_MODEL_PROVIDER,
         )
-        model_api_key = self._get_option(
-            lion_config, ["model_api_key", "modelApiKey"], self.settings.model_api_key
-        )
-        ollama_host = self._get_option(
-            lion_config, ["ollama_host", "ollamaHost"], self.settings.ollama_host
-        )
-
-        format_candidates = self._bool_option(
-            lion_config, ["format_candidates", "formatCandidates"], True
-        )
-        compact_candidates = self._bool_option(
-            lion_config, ["compact_candidates", "compactCandidates"], True
-        )
-
-        prompt_template = self._get_option(
-            lion_config, ["prompt_template", "promptTemplate"], None
-        )
-        few_shot_examples = self._get_option(
+        lion_kwargs["ollama_host"] = self._get_option(
             lion_config,
-            ["few_shot_examples_file_path", "fewShotExamplesFilePath"],
+            ["ollama_host"],
+            self.DEFAULT_OLLAMA_HOST,
+        )
+        lion_kwargs["model_api_key"] = self._get_option(
+            lion_config,
+            ["model_api_key"],
             None,
         )
-        answer_format = self._get_option(lion_config, ["answer_format", "answerFormat"], None)
-        gt_columns = self._list_option(lion_config, ["gt_columns", "gtColumns"], None)
 
-        lion_kwargs: Dict[str, Any] = {
-            "model_name": model_name,
-            "chunk_size": chunk_size,
-            "mention_columns": mention_columns,
-            "model_api_provider": model_api_provider,
-            "ollama_host": ollama_host,
-            "model_api_key": model_api_key,
-            "table_ctx_size": table_ctx_size,
-            "format_candidates": format_candidates,
-            "compact_candidates": compact_candidates,
-        }
-        if prompt_template:
-            lion_kwargs["prompt_template"] = prompt_template
-        if few_shot_examples:
-            lion_kwargs["few_shot_examples_file_path"] = few_shot_examples
-        if answer_format:
-            lion_kwargs["answer_format"] = answer_format
-        if gt_columns:
+        lion_kwargs["format_candidates"] = self._bool_option(
+            lion_config,
+            ["format_candidates"],
+            self.DEFAULT_FORMAT_CANDIDATES,
+        )
+        lion_kwargs["compact_candidates"] = self._bool_option(
+            lion_config,
+            ["compact_candidates"],
+            self.DEFAULT_COMPACT_CANDIDATES,
+        )
+
+        gt_columns = self._list_option(lion_config, ["gt_columns"], None)
+        if gt_columns is not None:
             lion_kwargs["gt_columns"] = gt_columns
 
         await self.store.update_job(
@@ -168,6 +164,23 @@ class LinkerRunner:
         await lion.run()
 
         results = self._parse_results(paths.output_csv, table, mention_columns)
+
+        prediction_batch_size = self._int_option(
+            lion_config,
+            ["prediction_batch_size", "predictionBatchSize"],
+            self.settings.prediction_batch_rows,
+        )
+        if prediction_batch_size is None or prediction_batch_size < 1:
+            prediction_batch_size = self.settings.prediction_batch_rows
+
+        prediction_batches = await self.store.save_predictions(
+            job_id,
+            job.dataset_id,
+            job.table_id,
+            results,
+            batch_size=prediction_batch_size,
+        )
+
         await self._write_results(paths.result_json, results)
         await self.store.set_job_result(
             job_id,
@@ -181,6 +194,8 @@ class LinkerRunner:
             status=JobStatus.completed,
             message="Linking completed",
             updated_at=datetime.now(tz=timezone.utc),
+            predictionBatches=prediction_batches,
+            predictionBatchSize=prediction_batch_size,
         )
 
     @staticmethod
@@ -256,18 +271,6 @@ class LinkerRunner:
         return default
 
     @staticmethod
-    def _normalise_keys(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        if not config:
-            return {}
-        normalised: Dict[str, Any] = {}
-        for key, value in config.items():
-            normalised[key] = value
-            snake = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", key)
-            snake = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", snake).lower()
-            normalised.setdefault(snake, value)
-        return normalised
-
-    @staticmethod
     def _load_class(path: str):
         module_name, class_name = path.rsplit(".", 1)
         module = import_module(module_name)
@@ -278,53 +281,33 @@ class LinkerRunner:
         table: DatasetTableRecord,
         config: Optional[Dict[str, Any]],
     ) -> RetrieverClient:
-        normalised = self._normalise_keys(config)
+        config = config or {}
 
-        class_path = self._get_option(normalised, ["class_path"], None)
+        class_path = config.get("class_path")
         if class_path:
             retriever_cls = self._load_class(str(class_path))
         else:
             retriever_cls = LamapiClient
 
-        endpoint = self._get_option(
-            normalised, ["endpoint", "retriever_endpoint", "url"], self.settings.retriever_endpoint
-        )
-        token = self._get_option(
-            normalised, ["token", "retriever_token", "api_key"], self.settings.retriever_token
-        )
-        num_candidates = self._int_option(
-            normalised, ["num_candidates"], self.settings.retriever_num_candidates
-        )
-        kg_value = self._get_option(normalised, ["kg", "knowledge_graph"], table.kg_reference)
-        cache = self._bool_option(normalised, ["cache"], self.settings.retriever_cache)
-        max_retries = self._int_option(normalised, ["max_retries"], None)
-        backoff_factor = self._float_option(normalised, ["backoff_factor"], None)
+        endpoint = config.get("endpoint")
+        token = config.get("token")
+        num_candidates = self._int_option(config, ["num_candidates"], None)
+        kg_value = config.get("kg", table.kg_reference)
+        cache = self._bool_option(config, ["cache"], None)
+        max_retries = self._int_option(config, ["max_retries"], None)
+        backoff_factor = self._float_option(config, ["backoff_factor"], None)
 
         recognised = {
             "class_path",
-            "classPath",
             "endpoint",
-            "retriever_endpoint",
-            "retrieverEndpoint",
-            "url",
-            "endpoint_url",
-            "endpointUrl",
             "token",
-            "retriever_token",
-            "api_key",
-            "apiKey",
             "num_candidates",
-            "numCandidates",
             "kg",
-            "knowledge_graph",
-            "knowledgeGraph",
             "cache",
             "max_retries",
-            "maxRetries",
             "backoff_factor",
-            "backoffFactor",
         }
-        extra_kwargs = {key: value for key, value in normalised.items() if key not in recognised}
+        extra_kwargs = {key: value for key, value in config.items() if key not in recognised}
 
         if retriever_cls is LamapiClient and not endpoint:
             return NullRetriever(num_candidates=num_candidates or 0)
@@ -364,8 +347,6 @@ class LinkerRunner:
             "kg_name": table.kg_reference,
         }
         kwargs.update(lion_kwargs)
-        print("Building Lion-Linker with kwargs:")
-        print(kwargs)
         return LionLinker(**kwargs)
 
     def _prepare_paths(self, job_id: str, table: DatasetTableRecord) -> JobPaths:
@@ -396,11 +377,6 @@ class LinkerRunner:
             mention_columns = [mention_columns]
         if mention_columns:
             columns = [col for col in mention_columns if col in table.header]
-            if columns:
-                return columns
-
-        if self.settings.default_mention_columns:
-            columns = [col for col in self.settings.default_mention_columns if col in table.header]
             if columns:
                 return columns
 

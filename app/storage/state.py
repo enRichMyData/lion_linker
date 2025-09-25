@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,11 +9,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ASCENDING, DESCENDING
+from pymongo import ASCENDING, DESCENDING, UpdateOne
 
 from app.core.config import Settings
-from app.models.dataset import DatasetPayload, DatasetResponse, DatasetTableRecord
-from app.models.jobs import JobEnqueueResponse, JobRecord, JobStatus
+from app.models.dataset import DatasetPayload, DatasetResponse, DatasetTableRecord, TableRowRecord
+from app.models.jobs import JobEnqueueResponse, JobRecord, JobStatus, ResultRow
 
 
 def _slice_results(
@@ -43,8 +44,10 @@ class StateStore:
         prefix = settings.mongo_collection_prefix or "lion"
         self._datasets = self._db[f"{prefix}_datasets"]
         self._tables = self._db[f"{prefix}_tables"]
+        self._table_rows = self._db[f"{prefix}_table_rows"]
         self._jobs = self._db[f"{prefix}_jobs"]
         self._lock = asyncio.Lock()
+        self._prediction_batch_rows = settings.prediction_batch_rows
 
     async def ensure_indexes(self) -> None:
         await self._datasets.create_index("dataset_name_lower", unique=True)
@@ -53,6 +56,10 @@ class StateStore:
         )
         await self._jobs.create_index("tableId")
         await self._jobs.create_index("createdAt")
+        await self._table_rows.create_index(
+            [("tableId", ASCENDING), ("idRow", ASCENDING)], unique=True
+        )
+        await self._table_rows.create_index("datasetId")
 
     async def upsert_dataset(self, payload: DatasetPayload) -> DatasetResponse:
         async with self._lock:
@@ -92,12 +99,26 @@ class StateStore:
                 table_id = uuid.uuid4().hex
                 table_created = now
 
-            rows = [row.model_dump(by_alias=True) for row in payload.rows]
             sem_ann = (
                 payload.semantic_annotations.model_dump(mode="json", by_alias=True)
                 if payload.semantic_annotations
                 else None
             )
+
+            await self._table_rows.delete_many({"tableId": table_id})
+            row_documents = []
+            for row in payload.rows:
+                row_documents.append(
+                    {
+                        "_id": f"{table_id}:{row.id_row}",
+                        "datasetId": dataset_id,
+                        "tableId": table_id,
+                        "idRow": row.id_row,
+                        "data": row.data,
+                    }
+                )
+            if row_documents:
+                await self._table_rows.insert_many(row_documents)
 
             record_doc = {
                 "_id": table_id,
@@ -108,7 +129,6 @@ class StateStore:
                 "table_name": payload.table_name,
                 "table_name_lower": payload.table_name.lower(),
                 "header": payload.header,
-                "rows": rows,
                 "semantic_annotations": sem_ann,
                 "metadata": payload.metadata,
                 "kg_reference": payload.kg_reference,
@@ -118,7 +138,11 @@ class StateStore:
                 "retriever_config": payload.retriever_config,
             }
 
-            await self._tables.update_one({"_id": table_id}, {"$set": record_doc}, upsert=True)
+            await self._tables.update_one(
+                {"_id": table_id},
+                {"$set": record_doc, "$unset": {"rows": ""}},
+                upsert=True,
+            )
 
             return DatasetResponse(
                 datasetId=dataset_id,
@@ -126,7 +150,7 @@ class StateStore:
                 datasetName=payload.dataset_name,
                 tableName=payload.table_name,
                 header=payload.header,
-                rowCount=len(rows),
+                rowCount=len(payload.rows),
                 createdAt=table_created,
                 updatedAt=now,
             )
@@ -135,8 +159,21 @@ class StateStore:
         doc = await self._tables.find_one({"_id": table_id, "dataset_id": dataset_id})
         if not doc:
             raise KeyError(f"Table not found: dataset={dataset_id}, table={table_id}")
+        rows_cursor = self._table_rows.find({"tableId": table_id}).sort("idRow", ASCENDING)
+        rows: List[TableRowRecord] = []
+        async for row_doc in rows_cursor:
+            rows.append(
+                TableRowRecord.model_validate(
+                    {
+                        "idRow": row_doc["idRow"],
+                        "data": row_doc.get("data", []),
+                        "annotations": row_doc.get("annotations", []),
+                    }
+                )
+            )
         payload = doc.copy()
         payload.pop("_id", None)
+        payload["rows"] = rows
         return DatasetTableRecord.model_validate(payload)
 
     async def get_table_by_name(
@@ -150,8 +187,21 @@ class StateStore:
         )
         if not doc:
             return None
+        rows_cursor = self._table_rows.find({"tableId": doc["table_id"]}).sort("idRow", ASCENDING)
+        rows: List[TableRowRecord] = []
+        async for row_doc in rows_cursor:
+            rows.append(
+                TableRowRecord.model_validate(
+                    {
+                        "idRow": row_doc["idRow"],
+                        "data": row_doc.get("data", []),
+                        "annotations": row_doc.get("annotations", []),
+                    }
+                )
+            )
         payload = doc.copy()
         payload.pop("_id", None)
+        payload["rows"] = rows
         return DatasetTableRecord.model_validate(payload)
 
     async def create_job(
@@ -229,6 +279,62 @@ class StateStore:
             "updated_at": datetime.now(tz=timezone.utc),
         }
         await self.update_job(job_id, **updates)
+
+    async def save_predictions(
+        self,
+        job_id: str,
+        dataset_id: str,
+        table_id: str,
+        rows: List[ResultRow],
+        batch_size: Optional[int] = None,
+    ) -> int:
+        if batch_size is None or batch_size < 1:
+            batch_size = self._prediction_batch_rows
+
+        batch_size = max(1, batch_size)
+
+        operations: List[UpdateOne] = []
+        for row in rows:
+            annotations = [prediction.model_dump(mode="json") for prediction in row.predictions]
+            operations.append(
+                UpdateOne(
+                    {"tableId": table_id, "idRow": row.idRow},
+                    {"$set": {"annotations": annotations}},
+                )
+            )
+
+        if operations:
+            await self._table_rows.bulk_write(operations, ordered=False)
+
+        return math.ceil(len(rows) / batch_size) if rows else 0
+
+    async def get_predictions_page(
+        self, dataset_id: str, table_id: str, page: int, per_page: int
+    ) -> List[Dict[str, Any]]:
+        if page < 1 or per_page < 1:
+            return []
+
+        skip = (page - 1) * per_page
+        cursor = (
+            self._table_rows.find({"datasetId": dataset_id, "tableId": table_id})
+            .sort("idRow", ASCENDING)
+            .skip(skip)
+            .limit(per_page)
+        )
+
+        docs = await cursor.to_list(length=per_page)
+
+        collected: List[Dict[str, Any]] = []
+        for doc in docs:
+            collected.append(
+                {
+                    "idRow": doc["idRow"],
+                    "data": doc.get("data", []),
+                    "predictions": doc.get("annotations", []),
+                }
+            )
+
+        return collected
 
     async def close(self) -> None:
         self._client.close()

@@ -29,6 +29,8 @@ class JobRecord(BaseModel):
     processed_rows: Optional[int] = Field(default=None, alias="processedRows")
     lion_config: Optional[Dict[str, Any]] = Field(default=None, alias="lionConfig")
     retriever_config: Optional[Dict[str, Any]] = Field(default=None, alias="retrieverConfig")
+    prediction_batches: Optional[int] = Field(default=None, alias="predictionBatches")
+    prediction_batch_size: Optional[int] = Field(default=None, alias="predictionBatchSize")
 
     class Config:
         populate_by_name = True
@@ -57,6 +59,8 @@ class JobStatusResponse(BaseModel):
     rows: List[ResultRow]
     message: Optional[str] = None
     updatedAt: datetime
+    predictionBatches: Optional[int] = None
+    predictionBatchSize: Optional[int] = None
 
 
 class JobEnqueueResponse(BaseModel):
@@ -78,3 +82,5 @@ class JobInfoResponse(BaseModel):
     updatedAt: datetime
     lionConfig: Optional[Dict[str, Any]] = None
     retrieverConfig: Optional[Dict[str, Any]] = None
+    predictionBatches: Optional[int] = None
+    predictionBatchSize: Optional[int] = None

@@ -5,10 +5,18 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.models.jobs import PredictionSummary
+
 
 class TableRowPayload(BaseModel):
     id_row: int = Field(alias="idRow")
     data: List[str]
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class TableRowRecord(TableRowPayload):
+    annotations: List[PredictionSummary] = Field(default_factory=list)
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -56,7 +64,7 @@ class DatasetTableRecord(BaseModel):
     table_id: str
     table_name: str
     header: List[str]
-    rows: List[TableRowPayload]
+    rows: List[TableRowRecord]
     semantic_annotations: Optional[SemanticAnnotationsPayload] = None
     metadata: Dict[str, object]
     kg_reference: str

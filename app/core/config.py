@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,21 +21,10 @@ class Settings(BaseSettings):
         default="lion", validation_alias="MONGO_COLLECTION_PREFIX"
     )
 
-    model_name: str = Field(default="gemma2:2b", validation_alias="LION_MODEL_NAME")
-    model_api_provider: str = Field(default="ollama", validation_alias="LION_MODEL_PROVIDER")
-    model_api_key: Optional[str] = Field(default=None, validation_alias="OPENROUTER_API_KEY")
-    ollama_host: Optional[str] = Field(default=None, validation_alias="OLLAMA_HOST")
-
     retriever_endpoint: Optional[str] = Field(default=None, validation_alias="RETRIEVER_ENDPOINT")
     retriever_token: Optional[str] = Field(default=None, validation_alias="RETRIEVER_TOKEN")
     retriever_num_candidates: int = Field(default=10, validation_alias="RETRIEVER_NUM_CANDIDATES")
     retriever_cache: bool = Field(default=False, validation_alias="RETRIEVER_CACHE")
-
-    default_mention_columns: Optional[List[str]] = Field(
-        default=None, validation_alias="LION_MENTION_COLUMNS"
-    )
-    chunk_size: int = Field(default=32, validation_alias="LION_CHUNK_SIZE")
-    table_ctx_size: int = Field(default=1, validation_alias="LION_TABLE_CTX_SIZE")
 
     queue_workers: int = Field(default=1, ge=1, validation_alias="LION_QUEUE_WORKERS")
     queue_poll_interval_seconds: float = Field(
@@ -43,6 +32,7 @@ class Settings(BaseSettings):
     )
 
     dry_run: bool = Field(default=False, validation_alias="LION_DRY_RUN")
+    prediction_batch_rows: int = Field(default=256, validation_alias="PREDICTION_BATCH_ROWS")
 
     model_config = SettingsConfigDict(
         env_file=".env",
