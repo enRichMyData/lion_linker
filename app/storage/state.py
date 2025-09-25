@@ -50,9 +50,19 @@ class StateStore:
         self._prediction_batch_rows = settings.prediction_batch_rows
 
     async def ensure_indexes(self) -> None:
-        await self._datasets.create_index("dataset_name_lower", unique=True)
+        dataset_indexes = await self._datasets.index_information()
+        if "dataset_name_lower_1" in dataset_indexes and dataset_indexes[
+            "dataset_name_lower_1"
+        ].get("unique"):
+            await self._datasets.drop_index("dataset_name_lower_1")
+        await self._datasets.create_index("dataset_name_lower")
+
+        table_indexes = await self._tables.index_information()
+        table_index_name = "dataset_id_1_table_name_lower_1"
+        if table_index_name in table_indexes and table_indexes[table_index_name].get("unique"):
+            await self._tables.drop_index(table_index_name)
         await self._tables.create_index(
-            [("dataset_id", ASCENDING), ("table_name_lower", ASCENDING)], unique=True
+            [("dataset_id", ASCENDING), ("table_name_lower", ASCENDING)]
         )
         await self._jobs.create_index("tableId")
         await self._jobs.create_index("createdAt")
@@ -64,61 +74,39 @@ class StateStore:
     async def upsert_dataset(self, payload: DatasetPayload) -> DatasetResponse:
         async with self._lock:
             now = datetime.now(tz=timezone.utc)
-            dataset_name_lower = payload.dataset_name.lower()
 
-            dataset_doc = await self._datasets.find_one({"dataset_name_lower": dataset_name_lower})
-            if dataset_doc:
-                dataset_id = dataset_doc["dataset_id"]
-                dataset_created = dataset_doc.get("created_at", now)
-                await self._datasets.update_one(
-                    {"_id": dataset_doc["_id"]}, {"$set": {"updated_at": now}}
-                )
-            else:
-                dataset_id = uuid.uuid4().hex
-                dataset_created = now
-                await self._datasets.insert_one(
-                    {
-                        "_id": dataset_id,
-                        "dataset_id": dataset_id,
-                        "dataset_name": payload.dataset_name,
-                        "dataset_name_lower": dataset_name_lower,
-                        "created_at": dataset_created,
-                        "updated_at": now,
-                    }
-                )
+            dataset_id = uuid.uuid4().hex
+            table_id = uuid.uuid4().hex
 
-            table_filter = {
-                "dataset_id": dataset_id,
-                "table_name_lower": payload.table_name.lower(),
-            }
-            table_doc = await self._tables.find_one(table_filter)
-            if table_doc:
-                table_id = table_doc["table_id"]
-                table_created = table_doc.get("created_at", now)
-            else:
-                table_id = uuid.uuid4().hex
-                table_created = now
-
-            sem_ann = (
-                payload.semantic_annotations.model_dump(mode="json", by_alias=True)
-                if payload.semantic_annotations
-                else None
+            await self._datasets.insert_one(
+                {
+                    "_id": dataset_id,
+                    "dataset_id": dataset_id,
+                    "dataset_name": payload.dataset_name,
+                    "dataset_name_lower": payload.dataset_name.lower(),
+                    "created_at": now,
+                    "updated_at": now,
+                }
             )
 
-            await self._table_rows.delete_many({"tableId": table_id})
-            row_documents = []
-            for row in payload.rows:
-                row_documents.append(
-                    {
-                        "_id": f"{table_id}:{row.id_row}",
-                        "datasetId": dataset_id,
-                        "tableId": table_id,
-                        "idRow": row.id_row,
-                        "data": row.data,
-                    }
-                )
+            row_documents = [
+                {
+                    "_id": f"{table_id}:{row.id_row}",
+                    "datasetId": dataset_id,
+                    "tableId": table_id,
+                    "idRow": row.id_row,
+                    "data": row.data,
+                }
+                for row in payload.rows
+            ]
             if row_documents:
                 await self._table_rows.insert_many(row_documents)
+
+            metadata = dict(payload.metadata or {})
+            lion_config_doc = payload.lion_config or {}
+            retriever_config_doc = payload.retriever_config or {}
+            metadata["lion_config"] = lion_config_doc
+            metadata["retriever_config"] = retriever_config_doc
 
             record_doc = {
                 "_id": table_id,
@@ -129,20 +117,15 @@ class StateStore:
                 "table_name": payload.table_name,
                 "table_name_lower": payload.table_name.lower(),
                 "header": payload.header,
-                "semantic_annotations": sem_ann,
-                "metadata": payload.metadata,
+                "metadata": metadata,
                 "kg_reference": payload.kg_reference,
-                "created_at": table_created,
+                "created_at": now,
                 "updated_at": now,
-                "lion_config": payload.lion_config,
-                "retriever_config": payload.retriever_config,
+                "lion_config": lion_config_doc,
+                "retriever_config": retriever_config_doc,
             }
 
-            await self._tables.update_one(
-                {"_id": table_id},
-                {"$set": record_doc, "$unset": {"rows": ""}},
-                upsert=True,
-            )
+            await self._tables.insert_one(record_doc)
 
             return DatasetResponse(
                 datasetId=dataset_id,
@@ -151,7 +134,7 @@ class StateStore:
                 tableName=payload.table_name,
                 header=payload.header,
                 rowCount=len(payload.rows),
-                createdAt=table_created,
+                createdAt=now,
                 updatedAt=now,
             )
 
@@ -183,7 +166,8 @@ class StateStore:
             {
                 "dataset_name_lower": dataset_name.lower(),
                 "table_name_lower": table_name.lower(),
-            }
+            },
+            sort=[("created_at", DESCENDING)],
         )
         if not doc:
             return None
