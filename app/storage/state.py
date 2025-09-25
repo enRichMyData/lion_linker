@@ -12,6 +12,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING, DESCENDING, UpdateOne
 
 from app.core.config import Settings
+from app.core.linker_defaults import default_lion_config, default_retriever_config
 from app.models.dataset import DatasetPayload, DatasetResponse, DatasetTableRecord, TableRowRecord
 from app.models.jobs import JobEnqueueResponse, JobRecord, JobStatus, ResultRow
 
@@ -103,8 +104,12 @@ class StateStore:
                 await self._table_rows.insert_many(row_documents)
 
             metadata = dict(payload.metadata or {})
-            lion_config_doc = payload.lion_config or {}
-            retriever_config_doc = payload.retriever_config or {}
+            lion_config_doc = default_lion_config()
+            if payload.lion_config:
+                lion_config_doc.update(payload.lion_config)
+            retriever_config_doc = default_retriever_config(payload.kg_reference)
+            if payload.retriever_config:
+                retriever_config_doc.update(payload.retriever_config)
             metadata["lion_config"] = lion_config_doc
             metadata["retriever_config"] = retriever_config_doc
 
@@ -121,8 +126,6 @@ class StateStore:
                 "kg_reference": payload.kg_reference,
                 "created_at": now,
                 "updated_at": now,
-                "lion_config": lion_config_doc,
-                "retriever_config": retriever_config_doc,
             }
 
             await self._tables.insert_one(record_doc)
@@ -157,6 +160,7 @@ class StateStore:
         payload = doc.copy()
         payload.pop("_id", None)
         payload["rows"] = rows
+        self._attach_configs(payload)
         return DatasetTableRecord.model_validate(payload)
 
     async def get_table_by_name(
@@ -186,7 +190,16 @@ class StateStore:
         payload = doc.copy()
         payload.pop("_id", None)
         payload["rows"] = rows
+        self._attach_configs(payload)
         return DatasetTableRecord.model_validate(payload)
+
+    @staticmethod
+    def _attach_configs(payload: Dict[str, Any]) -> None:
+        metadata = payload.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        payload["lion_config"] = metadata.get("lion_config")
+        payload["retriever_config"] = metadata.get("retriever_config")
 
     async def create_job(
         self,

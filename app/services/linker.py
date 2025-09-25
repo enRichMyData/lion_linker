@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, cast
 
 import pandas as pd
 
+from app.core import linker_defaults
 from app.core.config import Settings, settings
 from app.models.dataset import DatasetTableRecord
 from app.models.jobs import JobStatus, PredictionSummary, ResultRow
@@ -43,13 +44,13 @@ class JobPaths:
 
 
 class LinkerRunner:
-    DEFAULT_MODEL_NAME = "gemma2:2b"
-    DEFAULT_MODEL_PROVIDER = "ollama"
-    DEFAULT_CHUNK_SIZE = 64
-    DEFAULT_TABLE_CTX_SIZE = 1
-    DEFAULT_OLLAMA_HOST: Optional[str] = "http://ollama:11434"
-    DEFAULT_FORMAT_CANDIDATES = True
-    DEFAULT_COMPACT_CANDIDATES = True
+    DEFAULT_MODEL_NAME = linker_defaults.DEFAULT_MODEL_NAME
+    DEFAULT_MODEL_PROVIDER = linker_defaults.DEFAULT_MODEL_PROVIDER
+    DEFAULT_CHUNK_SIZE = linker_defaults.DEFAULT_CHUNK_SIZE
+    DEFAULT_TABLE_CTX_SIZE = linker_defaults.DEFAULT_TABLE_CTX_SIZE
+    DEFAULT_OLLAMA_HOST: Optional[str] = linker_defaults.DEFAULT_OLLAMA_HOST
+    DEFAULT_FORMAT_CANDIDATES = linker_defaults.DEFAULT_FORMAT_CANDIDATES
+    DEFAULT_COMPACT_CANDIDATES = linker_defaults.DEFAULT_COMPACT_CANDIDATES
 
     def __init__(self, store: StateStore, app_settings: Settings | None = None):
         self.store = store
