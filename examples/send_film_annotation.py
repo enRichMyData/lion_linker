@@ -42,7 +42,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 DEFAULT_API_URL = "http://localhost:9000"
-DEFAULT_MODEL_NAME = "openai/gpt-5-mini"
+DEFAULT_MODEL_NAME = "gemma2:2b"
 DEFAULT_POLL_INTERVAL = 5.0
 
 
@@ -76,7 +76,7 @@ def _build_payload(
 ) -> List[Dict[str, Any]]:
     lion_config: Dict[str, Any] = {
         "model_name": model_name,
-        "model_api_provider": "openrouter",
+        "model_api_provider": "ollama",
         "model_api_key": model_api_key,
         "mention_columns": ["title"],
         "chunk_size": 32,

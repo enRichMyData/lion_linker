@@ -11,20 +11,12 @@ from app.models.jobs import PredictionSummary
 class TableRowPayload(BaseModel):
     id_row: int = Field(alias="idRow")
     data: List[str]
-
     model_config = ConfigDict(populate_by_name=True)
 
 
 class TableRowRecord(TableRowPayload):
     annotations: List[PredictionSummary] = Field(default_factory=list)
-
     model_config = ConfigDict(populate_by_name=True)
-
-
-class SemanticAnnotationsPayload(BaseModel):
-    cea: List[Dict[str, object]] = Field(default_factory=list)
-    cta: List[Dict[str, object]] = Field(default_factory=list)
-    cpa: List[Dict[str, object]] = Field(default_factory=list)
 
 
 class DatasetPayload(BaseModel):
@@ -32,9 +24,6 @@ class DatasetPayload(BaseModel):
     table_name: str = Field(alias="tableName")
     header: List[str]
     rows: List[TableRowPayload]
-    semantic_annotations: Optional[SemanticAnnotationsPayload] = Field(
-        default=None, alias="semanticAnnotations"
-    )
     metadata: Dict[str, object] = Field(default_factory=dict)
     lion_config: Optional[Dict[str, Any]] = Field(default=None, alias="lionConfig")
     retriever_config: Optional[Dict[str, Any]] = Field(default=None, alias="retrieverConfig")
@@ -64,7 +53,6 @@ class DatasetTableRecord(BaseModel):
     table_name: str
     header: List[str]
     rows: List[TableRowRecord]
-    semantic_annotations: Optional[SemanticAnnotationsPayload] = None
     metadata: Dict[str, object]
     created_at: datetime
     updated_at: datetime
