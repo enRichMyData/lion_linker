@@ -4,9 +4,11 @@
 This script demonstrates how to:
 
 1. Read the sample CSV at ``data/film_with_QIDs_10.csv``.
-2. Submit it to the ``POST /annotate`` endpoint.
-3. Poll ``GET /dataset/{datasetId}/table/{tableId}`` until the job finishes.
-4. Display a compact summary of the annotated rows.
+2. Register it via ``POST /datasets`` and capture the returned IDs.
+3. Submit an annotation request with ``POST /datasets/{datasetId}/tables/{tableId}/annotate``
+   (optionally restricting to a subset of rows).
+4. Poll ``GET /dataset/{datasetId}/table/{tableId}`` until the job finishes.
+5. Display a compact summary of the annotated rows.
 
 The script configures LionLinker to use the ``openrouter`` model provider. Make sure you
 export ``OPENROUTER_API_KEY`` in your environment before running it.
@@ -24,6 +26,8 @@ Optional environment variables:
     OPENROUTER_MODEL_NAME OpenRouter model alias (default: anthropic/claude-3-haiku)
     ANNOTATION_TOKEN      Optional token passed as ?token= value on submission
     POLL_INTERVAL_SECONDS Delay between status polls (default: 5)
+    ROW_IDS              Optional comma-separated list of row indices to annotate
+    ROW_IDS              Optional comma-separated list of row indices to annotate
 """
 
 from __future__ import annotations
@@ -42,7 +46,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 DEFAULT_API_URL = "http://localhost:9000"
-DEFAULT_MODEL_NAME = "gemma2:2b"
+DEFAULT_MODEL_NAME = "openai/gpt-5-mini"
 DEFAULT_POLL_INTERVAL = 5.0
 
 
@@ -64,7 +68,7 @@ def _read_table(csv_path: Path) -> tuple[List[str], List[Dict[str, Any]]]:
     return header, rows
 
 
-def _build_payload(
+def _build_registration_payload(
     dataset_name: str,
     table_name: str,
     header: List[str],
@@ -76,7 +80,7 @@ def _build_payload(
 ) -> List[Dict[str, Any]]:
     lion_config: Dict[str, Any] = {
         "model_name": model_name,
-        "model_api_provider": "ollama",
+        "model_api_provider": "openrouter",
         "model_api_key": model_api_key,
         "mention_columns": ["title"],
         "chunk_size": 32,
@@ -155,7 +159,7 @@ def main() -> None:
     retriever_config = _build_retriever_config()
 
     header, rows = _read_table(csv_path)
-    payload = _build_payload(
+    payload = _build_registration_payload(
         dataset_name,
         table_name,
         header,
@@ -165,25 +169,53 @@ def main() -> None:
         retriever_config=retriever_config,
     )
 
-    submit_params = {"token": token} if token else None
-    print(f"Submitting table '{table_name}' ({len(rows)} rows) to {api_url}/annotate")
-
-    response = requests.post(
-        f"{api_url}/annotate",
-        params=submit_params,
+    print(f"Registering table '{table_name}' ({len(rows)} rows) at {api_url}/datasets")
+    register_resp = requests.post(
+        f"{api_url}/datasets",
         json=payload,
         timeout=60,
     )
-    response.raise_for_status()
-    jobs = response.json()
-    if not jobs:
-        raise RuntimeError("Annotate endpoint returned an empty response")
+    register_resp.raise_for_status()
+    registrations = register_resp.json()
+    if not registrations:
+        raise RuntimeError("Dataset registration returned an empty response")
 
-    job = jobs[0]
-    dataset_id = job["datasetId"]
-    table_id = job["tableId"]
+    registration = registrations[0]
+    dataset_id = registration["datasetId"]
+    table_id = registration["tableId"]
+    print(f"Registered dataset={dataset_id}, table={table_id}")
+
+    row_ids_env = os.getenv("ROW_IDS")
+    row_ids: Optional[List[int]] = None
+    if row_ids_env:
+        try:
+            row_ids = [int(part.strip()) for part in row_ids_env.split(",") if part.strip()]
+        except ValueError as exc:
+            raise ValueError("ROW_IDS must be a comma-separated list of integers") from exc
+
+    annotation_payload: Dict[str, Any] = {
+        "lionConfig": payload[0].get("lionConfig"),
+    }
+    if retriever_config:
+        annotation_payload["retrieverConfig"] = retriever_config
+    if row_ids:
+        annotation_payload["rowIds"] = row_ids
+    if token:
+        annotation_payload["token"] = token
+
+    print(
+        "Submitting annotation request to "
+        f"{api_url}/datasets/{dataset_id}/tables/{table_id}/annotate"
+    )
+    annotate_resp = requests.post(
+        f"{api_url}/datasets/{dataset_id}/tables/{table_id}/annotate",
+        json=annotation_payload,
+        timeout=60,
+    )
+    annotate_resp.raise_for_status()
+    job = annotate_resp.json()
     job_id = job["jobId"]
-    print(f"Job {job_id} created for dataset={dataset_id}, table={table_id}")
+    print(f"Job {job_id} created")
 
     status_url = f"{api_url}/dataset/{dataset_id}/table/{table_id}"
     while True:
@@ -233,6 +265,9 @@ def main() -> None:
         print(f"  Retriever config keys: {list(retriever_config.keys())}")
     else:
         print("  Retriever config: <none provided>")
+    row_ids_info = info_payload.get("rowIds")
+    if row_ids_info:
+        print(f"  Row IDs: {row_ids_info}")
 
 
 if __name__ == "__main__":

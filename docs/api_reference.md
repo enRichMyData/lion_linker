@@ -18,10 +18,11 @@ The reference implementation accepts an optional `token` query parameter on job-
 
 ```
 POST /dataset
+POST /datasets
 Content-Type: application/json
 ```
 
-Registers one or more tables in the store. Each element matches the onboarding payload:
+Registers one or more tables in the store. `/dataset` is kept for backwards compatibility; `/datasets` is the preferred name. Each element matches the onboarding payload:
 
 ```json
 [
@@ -51,32 +52,49 @@ Registers one or more tables in the store. Each element matches the onboarding p
 
 **Response** – array of objects containing `datasetId`, `tableId`, and metadata.
 
-### 2. Trigger Annotation Runs
+### 2. Submit Annotation Jobs
+
+#### 2.1 Bulk (legacy)
 
 ```
 POST /annotate
 Content-Type: application/json
 ```
 
-Enqueue LionLinker runs for one or more tables. The payload matches `POST /dataset`; any tables not yet registered will be upserted automatically.
+Enqueue LionLinker runs for one or more tables. The payload matches `POST /datasets`; any tables not yet registered will be upserted automatically.
 
 Optional query parameter:
 
 - `token`: value stored with the job and required when polling status (optional).
 
-**Response** – array of job descriptors:
+**Response** – array of job descriptors.
+
+#### 2.2 Single Table / Subset
+
+```
+POST /datasets/{datasetId}/tables/{tableId}/annotate
+Content-Type: application/json
+```
+
+Submit a job for a single table. Supports row subsets via `rowIds`:
 
 ```json
-[
-  {
-    "jobId": "91723dec3eb64dd68a358a057de0bc27",
-    "datasetId": "6177cc032e0d40628b6f00fcfa9d8310",
-    "tableId": "50743956de014184acb49288874f4110",
-    "status": "pending",
-    "createdAt": "2025-09-24T15:04:16.108905Z"
-  }
-]
+{
+  "rowIds": [0, 5, 9],
+  "lionConfig": {
+    "model_name": "openai/gpt-5-mini",
+    "model_api_provider": "openrouter",
+    "model_api_key": "sk-or-..."
+  },
+  "retrieverConfig": {
+    "endpoint": "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval",
+    "token": "lamapi_demo_2023"
+  },
+  "token": "optional-job-token"
+}
 ```
+
+**Response** – single job descriptor with `rowIds` echoed back.
 
 ### 3. Poll Annotation Status (latest for table)
 
@@ -113,7 +131,8 @@ Returns the most recent job for the given table along with prediction rows. Pred
   "message": "Linking completed",
   "updatedAt": "2025-09-24T15:05:22.101000",
   "predictionBatches": 1,
-  "predictionBatchSize": 200
+  "predictionBatchSize": 200,
+  "rowIds": [0, 5, 9]
 }
 ```
 
@@ -150,7 +169,8 @@ Returns job state without streaming rows. Helpful for checking configuration ech
     "token": "lamapi_demo_2023"
   },
   "predictionBatches": 1,
-  "predictionBatchSize": 200
+  "predictionBatchSize": 200,
+  "rowIds": [0, 5, 9]
 }
 ```
 
