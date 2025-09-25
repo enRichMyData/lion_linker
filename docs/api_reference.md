@@ -96,6 +96,26 @@ Submit a job for a single table. Supports row subsets via `rowIds`:
 
 **Response** – single job descriptor with `rowIds` echoed back.
 
+#### 2.3 Update Existing Annotations
+
+```
+PATCH /datasets/{datasetId}/tables/{tableId}/annotations
+Content-Type: application/json
+```
+
+Refresh annotations for specific rows without creating a new table entry. The payload mirrors the single-table annotate request; omit `rowIds` to reprocess the entire table.
+
+```json
+{
+  "rowIds": [1, 3, 5],
+  "lionConfig": { ... },
+  "retrieverConfig": { ... },
+  "token": "optional-job-token"
+}
+```
+
+**Response** – single job descriptor.
+
 ### 3. Poll Annotation Status (latest for table)
 
 ```
