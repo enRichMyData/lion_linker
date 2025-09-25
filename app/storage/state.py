@@ -107,7 +107,10 @@ class StateStore:
             lion_config_doc = default_lion_config()
             if payload.lion_config:
                 lion_config_doc.update(payload.lion_config)
-            retriever_config_doc = default_retriever_config(payload.kg_reference)
+            retriever_kg = None
+            if payload.retriever_config:
+                retriever_kg = payload.retriever_config.get("kg")
+            retriever_config_doc = default_retriever_config(retriever_kg)
             if payload.retriever_config:
                 retriever_config_doc.update(payload.retriever_config)
             metadata["lion_config"] = lion_config_doc
@@ -123,7 +126,6 @@ class StateStore:
                 "table_name_lower": payload.table_name.lower(),
                 "header": payload.header,
                 "metadata": metadata,
-                "kg_reference": payload.kg_reference,
                 "created_at": now,
                 "updated_at": now,
             }
