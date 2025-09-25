@@ -3,13 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
 
 from app.dependencies import get_store, get_task_queue
-from app.models.dataset import DatasetPayload, DatasetResponse
+from app.models.dataset import DatasetPayload, DatasetResponse, TableAnnotationRequest
 from app.models.jobs import (
     JobEnqueueResponse,
     JobInfoResponse,
@@ -55,13 +54,6 @@ def _require_snake_case(config: Optional[dict], context: str) -> None:
                     "(lowercase letters, digits, underscores)"
                 ),
             )
-
-
-class TableAnnotationRequest(BaseModel):
-    row_ids: Optional[List[int]] = Field(default=None, alias="rowIds")
-    lion_config: Optional[Dict[str, Any]] = Field(default=None, alias="lionConfig")
-    retriever_config: Optional[Dict[str, Any]] = Field(default=None, alias="retrieverConfig")
-    token: Optional[str] = None
 
 
 @router.post("/dataset", response_model=List[DatasetResponse])

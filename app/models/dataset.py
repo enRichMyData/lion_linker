@@ -8,6 +8,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.models.jobs import PredictionSummary
 
 
+class TableAnnotationRequest(BaseModel):
+    row_ids: Optional[List[int]] = Field(default=None, alias="rowIds")
+    lion_config: Optional[Dict[str, Any]] = Field(default=None, alias="lionConfig")
+    retriever_config: Optional[Dict[str, Any]] = Field(default=None, alias="retrieverConfig")
+    token: Optional[str] = None
+
+
 class TableRowPayload(BaseModel):
     id_row: int = Field(alias="idRow")
     data: List[str]
