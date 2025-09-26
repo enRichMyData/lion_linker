@@ -40,6 +40,8 @@ app = [
     "fastapi==0.115",
     "pydantic<3",
     "uvicorn==0.34",
+    "pydantic-settings>=2.0,<3",
+    "motor>=3.5,<4",
 ]
 dev = [
     "flake8",
@@ -144,3 +146,10 @@ disallow_untyped_defs = false
 no_implicit_reexport = false
 # This one can be tricky to get passing if you use a lot of untyped libraries
 warn_return_any = false
+
+[dependency-groups]
+app = [
+    "fastapi>=0.115.0",
+    "pydantic>=2.11.7",
+    "pymongo>=4.15.1",
+]
