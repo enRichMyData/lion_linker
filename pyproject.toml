@@ -22,9 +22,9 @@ classifiers = [
 
 dependencies = [
     "pandas==2.2.3",
-    "requests==2.32.3",
+    "requests==2.32.4",
     "ollama==0.3.3",
-    "aiohttp==3.10.10",
+    "aiohttp==3.12.14",
     "asyncio==3.4.3",
     "tqdm==4.67.0",
     "openai==1.54.4",
@@ -48,6 +48,7 @@ dev = [
     "black",
     "isort",
     "mypy",
+    "pre-commit"
 ]
 tablellama = [
     "transformers==4.34",
