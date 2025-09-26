@@ -43,4 +43,4 @@ services:
     volumes:
       - ../../data:/data
       - ../../app:/app/app
-      - ../../lion_linker:/lion_linker
+      - ../../lion_linker:/app/lion_linker

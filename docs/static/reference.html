@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LionLinker API Reference</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.6.1/github-markdown.min.css"
+      integrity="sha512-yfz49FpM4ps3u+4swYceJ9Ay6xJCXKmU6U7U4gn2mTt9MldioWfGmj2e4SBq6p1V9NcpAJ5zT5a9mMqlhtPJUQ=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Helvetica, Arial, sans-serif;
+        background: linear-gradient(180deg, #0c1220 0%, #111a2e 100%);
+        color: #1f2933;
+      }
+      .hero {
+        padding: 64px 24px;
+        color: #f5f8ff;
+        text-align: center;
+      }
+      .hero h1 {
+        font-size: 44px;
+        margin-bottom: 12px;
+        font-weight: 800;
+      }
+      .hero p {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.6;
+        opacity: 0.85;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 260px 1fr;
+        gap: 24px;
+        max-width: 1200px;
+        margin: -40px auto 80px;
+        padding: 0 24px;
+      }
+      nav {
+        background: rgba(17, 24, 39, 0.92);
+        backdrop-filter: blur(12px);
+        border-radius: 16px;
+        padding: 24px;
+        height: fit-content;
+        position: sticky;
+        top: 24px;
+      }
+      nav h2 {
+        color: #9fb5ff;
+        font-size: 14px;
+        margin: 0 0 16px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      nav a {
+        display: block;
+        color: #d6e2ff;
+        text-decoration: none;
+        margin: 8px 0;
+        font-size: 15px;
+        transition: color 0.2s ease;
+      }
+      nav a:hover {
+        color: #ffffff;
+      }
+      main {
+        background: #ffffff;
+        border-radius: 18px;
+        box-shadow: 0 24px 60px rgba(12, 18, 32, 0.22);
+        padding: 48px 56px;
+      }
+      .markdown-body {
+        box-sizing: border-box;
+        width: 100%;
+      }
+      .markdown-body h1,
+      .markdown-body h2,
+      .markdown-body h3 {
+        color: #0b1628;
+        font-weight: 700;
+      }
+      pre {
+        background: #0b1628;
+        color: #d3dcff;
+        padding: 16px 20px;
+        border-radius: 12px;
+        overflow-x: auto;
+      }
+      code {
+        font-family: "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 24px 0;
+      }
+      th,
+      td {
+        border: 1px solid #dde3f0;
+        padding: 12px 16px;
+        text-align: left;
+      }
+      th {
+        background: #f5f7ff;
+      }
+      @media (max-width: 960px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        nav {
+          position: static;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="hero">
+      <h1>LionLinker API Reference</h1>
+      <p>
+        A concise guide to onboarding datasets, submitting jobs, and retrieving
+        predictions through the LionLinker REST API.
+      </p>
+    </header>
+
+    <div class="layout">
+      <nav>
+        <h2>On this page</h2>
+        <a href="#overview">Overview</a>
+        <a href="#endpoints">Endpoints</a>
+        <a href="#configs">Request Configuration</a>
+        <a href="#responses">Response Codes</a>
+        <a href="#notes">Operational Notes</a>
+      </nav>
+
+      <main>
+        <article class="markdown-body">
+          <h2 id="overview">Overview</h2>
+          <p>
+            Base URL: <code>http://&lt;host&gt;:9000</code><br />
+            Authentication: Optional <code>token</code> query parameter stored with
+            jobs. If you provide a token when submitting a job, you must pass the same
+            token when querying its status.
+          </p>
+
+          <p>
+            The interactive Swagger UI is always available at
+            <code>/docs</code> and the ReDoc interface at <code>/redoc</code>.
+          </p>
+
+          <h2 id="endpoints">Endpoints</h2>
+
+          <h3>1. Register Tables — <code>POST /dataset</code></h3>
+          <p>
+            Registers one or more tables. The payload matches the onboarding format and
+            stores rows individually in MongoDB.
+          </p>
+          <pre><code>POST /dataset
+Content-Type: application/json
+
+[
+  {
+    "datasetName": "EMD-BC",
+    "tableName": "SN-BC-1753173071015729",
+    "header": ["Point of Interest", "Place"],
+    "rows": [
+      {"idRow": 1, "data": ["John F. Kennedy Presidential Library and Museum", "Columbia Point"]},
+      {"idRow": 2, "data": ["Petrie Museum of Egyptian Archaeology", "London"]}
+    ],
+    "lionConfig": {
+      "model_name": "gemma2:2b",
+      "chunk_size": 16,
+      "mention_columns": ["Point of Interest"],
+      "table_ctx_size": 2
+    },
+    "retrieverConfig": {
+      "class_path": "lion_linker.retrievers.LamapiClient",
+      "endpoint": "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval",
+      "token": "lamapi_demo_2023",
+      "num_candidates": 5
+    }
+  }
+]</code></pre>
+          <p>
+            Response: array of registration objects containing <code>datasetId</code>,
+            <code>tableId</code>, and metadata.
+          </p>
+
+          <h3>2. Trigger Annotation Runs — <code>POST /annotate</code></h3>
+          <p>
+            Enqueue LionLinker runs for each table in the payload. Tables are upserted as
+            part of submission if necessary.
+          </p>
+          <pre><code>POST /annotate?token=optional
+Content-Type: application/json
+[ ... same structure as POST /dataset ... ]</code></pre>
+          <p>
+            Response: array of queued job descriptors (jobId, datasetId, tableId,
+            status, createdAt).
+          </p>
+
+          <h3>3. Poll Latest Annotation for a Table —
+            <code>GET /dataset/{datasetId}/table/{tableId}</code>
+          </h3>
+          <pre><code>GET /dataset/6177cc032e0d40628b6f00fcfa9d8310/table/50743956de014184acb49288874f4110?page=1&amp;per_page=50&amp;token=optional</code></pre>
+          <p>
+            Returns the most recent job and a page of predictions. Predictions stream directly
+            from table rows stored in MongoDB. Legacy JSON files are used only if no Mongo
+            annotations exist (for historic jobs).
+          </p>
+
+          <h3>4. Fetch Annotation by ID — <code>GET /annotate/{jobId}</code></h3>
+          <p>
+            View job status, configuration echoes, and prediction batch metadata without
+            streaming row data.
+          </p>
+
+          <h2 id="configs">Request Configuration</h2>
+          <h3><code>lionConfig</code></h3>
+          <p>All keys use snake_case and map directly to LionLinker arguments.</p>
+          <table>
+            <tr><th>Key</th><th>Type</th><th>Description</th></tr>
+            <tr><td>model_name</td><td>string</td><td>Model identifier (default <code>gemma2:2b</code>).</td></tr>
+            <tr><td>chunk_size</td><td>integer</td><td>Rows per batch; must be ≥ 1.</td></tr>
+            <tr><td>mention_columns</td><td>array[string]</td><td>Columns used to extract mentions.</td></tr>
+            <tr><td>table_ctx_size</td><td>integer</td><td>Context window around each row. Default 1.</td></tr>
+            <tr><td>prompt_template</td><td>string</td><td>Template name or path.</td></tr>
+            <tr><td>prompt_file_path</td><td>string</td><td>Explicit prompt file path.</td></tr>
+            <tr><td>few_shot_examples_file_path</td><td>string</td><td>Few-shot examples file path.</td></tr>
+            <tr><td>format_candidates</td><td>boolean</td><td>Format retriever candidates (default true).</td></tr>
+            <tr><td>compact_candidates</td><td>boolean</td><td>Compact candidates when formatting is disabled (default true).</td></tr>
+            <tr><td>model_api_provider</td><td>string</td><td><code>ollama</code> | <code>openrouter</code> | <code>huggingface</code>; defaults to <code>ollama</code>.</td></tr>
+            <tr><td>ollama_host</td><td>string</td><td>Base URL for the Ollama service (default <code>http://ollama:11434</code>).</td></tr>
+            <tr><td>model_api_key</td><td>string</td><td>API key for providers that require it (e.g. OpenRouter).</td></tr>
+            <tr><td>gt_columns</td><td>array[string]</td><td>Columns excluded from prediction.</td></tr>
+            <tr><td>answer_format</td><td>string</td><td>Custom answer format.</td></tr>
+            <tr><td>prediction_batch_size</td><td>integer</td><td>Overrides default Mongo batch size for predictions.</td></tr>
+          </table>
+
+          <h3><code>retrieverConfig</code></h3>
+          <p>Keys may be supplied in either snake_case or camelCase; the API normalises them to snake_case.</p>
+          <table>
+            <tr><th>Key</th><th>Type</th><th>Description</th></tr>
+            <tr><td>class_path</td><td>string</td><td>Fully qualified retriever class. Defaults to <code>lion_linker.retrievers.LamapiClient</code>.</td></tr>
+            <tr><td>endpoint</td><td>string</td><td>Retriever endpoint URL.</td></tr>
+            <tr><td>token</td><td>string</td><td>Retriever authentication token.</td></tr>
+            <tr><td>num_candidates</td><td>integer</td><td>Candidate count per mention.</td></tr>
+            <tr><td>kg</td><td>string</td><td>Knowledge graph, defaults to the table metadata.</td></tr>
+            <tr><td>cache</td><td>boolean</td><td>Retriever-specific caching flag.</td></tr>
+            <tr><td>max_retries</td><td>integer</td><td>Optional retry count.</td></tr>
+            <tr><td>backoff_factor</td><td>number</td><td>Optional backoff factor.</td></tr>
+            <tr><td colspan="3">Any extra keys are forwarded to the retriever constructor.</td></tr>
+          </table>
+
+          <h2 id="responses">Response Codes</h2>
+          <table>
+            <tr><th>Status</th><th>Meaning</th></tr>
+            <tr><td>200</td><td>Request processed successfully.</td></tr>
+            <tr><td>400</td><td>Malformed payload or invalid parameters.</td></tr>
+            <tr><td>403</td><td>Token mismatch when polling job/status.</td></tr>
+            <tr><td>404</td><td>Dataset, table, or job not found.</td></tr>
+            <tr><td>500</td><td>Unexpected failure during processing.</td></tr>
+          </table>
+
+          <h2 id="notes">Operational Notes</h2>
+          <ul>
+            <li>Tables are saved row-by-row in MongoDB (`lion_table_rows`) and should be aggregated via `datasetId` and `tableId`.</li>
+            <li>Predictions are persisted directly on each table row. Job responses echo the batch sizing that was applied when the annotations were generated.</li>
+            <li>Legacy CSV/JSON artifacts under `/app/data/api_runs/` remain for backward compatibility.</li>
+          </ul>
+        </article>
+      </main>
+    </div>
+  </body>
+</html>

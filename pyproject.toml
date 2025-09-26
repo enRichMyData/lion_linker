@@ -31,6 +31,8 @@ dependencies = [
     "groq==0.12.0",
     "python-dotenv==1.0.1",
     "jsonargparse==4.37.0",
+    "torch>=2.8.0",
+    "transformers>=4.34.0",
 ]
 
 [project.optional-dependencies]
@@ -38,15 +40,14 @@ app = [
     "fastapi==0.115",
     "pydantic<3",
     "uvicorn==0.34",
+    "pydantic-settings>=2.0,<3",
+    "motor>=3.5,<4",
 ]
 dev = [
     "flake8",
     "black",
     "isort",
     "mypy",
-]
-huggingface = [
-    "transformers"
 ]
 tablellama = [
     "transformers==4.34",
@@ -144,3 +145,10 @@ disallow_untyped_defs = false
 no_implicit_reexport = false
 # This one can be tricky to get passing if you use a lot of untyped libraries
 warn_return_any = false
+
+[dependency-groups]
+app = [
+    "fastapi>=0.115.0",
+    "pydantic>=2.11.7",
+    "pymongo>=4.15.1",
+]
