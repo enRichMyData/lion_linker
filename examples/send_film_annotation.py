@@ -11,11 +11,11 @@ This script demonstrates how to:
 5. Display a compact summary of the annotated rows.
 
 The script configures LionLinker to use the ``openrouter`` model provider. Make sure you
-export ``OPENROUTER_API_KEY`` in your environment before running it.
+export ``OPENAI_API_KEY`` in your environment before running it.
 
 Example usage::
 
-    export OPENROUTER_API_KEY="sk-or-..."
+    export OPENAI_API_KEY="sk-or-..."
     python examples/send_film_annotation.py
 
 Optional environment variables:
@@ -151,9 +151,9 @@ def main() -> None:
     token = os.getenv("ANNOTATION_TOKEN")
     poll_interval = float(os.getenv("POLL_INTERVAL_SECONDS", DEFAULT_POLL_INTERVAL))
 
-    model_api_key = os.getenv("OPENROUTER_API_KEY")
+    model_api_key = os.getenv("OPENAI_API_KEY")
     if not model_api_key:
-        print("OPENROUTER_API_KEY must be set in the environment", file=sys.stderr)
+        print("OPENAI_API_KEY must be set in the environment", file=sys.stderr)
         sys.exit(1)
 
     retriever_config = _build_retriever_config()

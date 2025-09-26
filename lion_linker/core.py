@@ -23,7 +23,7 @@ class LLMInteraction:
         elif self.model_api_provider == "openrouter":
             self.openai_client = OpenAI(
                 base_url="https://openrouter.ai/api/v1",
-                api_key=model_api_key or os.getenv("OPENROUTER_API_KEY", None),
+                api_key=model_api_key or os.getenv("OPENAI_API_KEY", None),
             )
 
         # Initialize Hugging Face components if needed

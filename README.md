@@ -72,7 +72,7 @@ RETRIEVER_TOKEN=your_api_token  # Replace with your actual API token
 ```
 The .env file will be used to securely store your Retriever credentials and other sensitive configuration data, so make sure it is not committed to version control. Moreover, if one wants to use [OpenRouter](https://openrouter.ai/) the following additional credential must be set:
 ```bash
-OPENROUTER_API_KEY=sk-v1-...
+OPENAI_API_KEY=sk-v1-...
 ```
 which can be retreived from the [OpenRouter settings](https://openrouter.ai/settings/keys).
 
@@ -307,7 +307,7 @@ reads `data/film.csv`, posts it to the API, and prints the annotated rows while 
 OpenRouter as the LLM provider.
 
 ```bash
-export OPENROUTER_API_KEY="sk-or-..."
+export OPENAI_API_KEY="sk-or-..."
 python examples/send_film_annotation.py
 ```
 
