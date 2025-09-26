@@ -28,7 +28,6 @@ dependencies = [
     "asyncio==3.4.3",
     "tqdm==4.67.0",
     "openai==1.54.4",
-    "groq==0.12.0",
     "python-dotenv==1.0.1",
     "jsonargparse==4.37.0",
     "torch>=2.8.0",
