@@ -12,25 +12,22 @@ class LLMInteraction:
         self.model_api_provider = model_api_provider
         self.model_api_key = model_api_key
 
-
-        if self.model_api_provider.lower() not in {"ollama", "operouter", "huggingface"}:
+        if self.model_api_provider.lower() not in {"ollama", "openrouter", "huggingface"}:
             raise ValueError(
-                "The model api provider must be one of 'ollama', 'openrouter' or 'huggingface'"
+                "The model api provider must be one of 'ollama', 'openrouter' or 'huggingface'."
+                f"Provided: {self.model_api_provider}"
             )
-
-        self.model_api_provider = provider
-
-        if provider == "ollama":
+        if self.model_api_provider == "ollama":
             self.ollama_client = ollama.Client(ollama_host) if ollama_host else ollama.Client()
             self.ollama_client.pull(model_name)
-        elif provider == "openrouter":
+        elif self.model_api_provider == "openrouter":
             self.openai_client = OpenAI(
                 base_url="https://openrouter.ai/api/v1",
                 api_key=model_api_key or os.getenv("OPENROUTER_API_KEY", None),
             )
 
         # Initialize Hugging Face components if needed
-        if provider == "huggingface":
+        if self.model_api_provider == "huggingface":
             self._init_huggingface()
 
     def _init_huggingface(self):
