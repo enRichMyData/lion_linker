@@ -12,25 +12,24 @@ class LLMInteraction:
         self.model_api_provider = model_api_provider
         self.model_api_key = model_api_key
 
-
         if self.model_api_provider.lower() not in {"ollama", "operouter", "huggingface"}:
             raise ValueError(
                 "The model api provider must be one of 'ollama', 'openrouter' or 'huggingface'"
             )
 
-        self.model_api_provider = provider
+        self.model_api_provider = model_api_provider
 
-        if provider == "ollama":
+        if model_api_provider == "ollama":
             self.ollama_client = ollama.Client(ollama_host) if ollama_host else ollama.Client()
             self.ollama_client.pull(model_name)
-        elif provider == "openrouter":
+        elif model_api_provider == "openrouter":
             self.openai_client = OpenAI(
                 base_url="https://openrouter.ai/api/v1",
                 api_key=model_api_key or os.getenv("OPENROUTER_API_KEY", None),
             )
 
         # Initialize Hugging Face components if needed
-        if provider == "huggingface":
+        if model_api_provider == "huggingface":
             self._init_huggingface()
 
     def _init_huggingface(self):
@@ -50,7 +49,7 @@ class LLMInteraction:
                     self.model_name, attn_implementation="eager"
                 )
 
-                orig_ctx_len = getattr(config, "max_position_embeddings", None)
+                orig_ctx_len = getattr(config, "max_position_embeddings", -1)
                 if orig_ctx_len and context_size > orig_ctx_len:
                     scaling_factor = float(math.ceil(context_size / orig_ctx_len))
                     config.rope_scaling = {"type": "linear", "factor": scaling_factor}
