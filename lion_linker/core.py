@@ -12,7 +12,7 @@ class LLMInteraction:
         self.model_api_provider = model_api_provider
         self.model_api_key = model_api_key
 
-        if not self.model_api_provider.lower() not in {"ollama", "operouter", "huggingface"}:
+        if self.model_api_provider.lower() not in {"ollama", "operouter", "huggingface"}:
             raise ValueError(
                 "The model api provider must be one of 'ollama', 'openrouter' or 'huggingface'"
             )

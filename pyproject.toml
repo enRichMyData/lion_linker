@@ -22,15 +22,17 @@ classifiers = [
 
 dependencies = [
     "pandas==2.2.3",
-    "requests==2.32.3",
+    "requests==2.32.4",
     "ollama==0.3.3",
-    "aiohttp==3.10.10",
+    "aiohttp==3.12.14",
     "asyncio==3.4.3",
     "tqdm==4.67.0",
     "openai==1.54.4",
     "groq==0.12.0",
     "python-dotenv==1.0.1",
     "jsonargparse==4.37.0",
+    "torch>=2.8.0",
+    "transformers>=4.34.0",
 ]
 
 [project.optional-dependencies]
@@ -44,9 +46,7 @@ dev = [
     "black",
     "isort",
     "mypy",
-]
-huggingface = [
-    "transformers"
+    "pre-commit"
 ]
 tablellama = [
     "transformers==4.34",
