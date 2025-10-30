@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -15,25 +16,30 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 class LionLinker:
-    DEFAULT_ANSWER_FORMAT = """
-        Identify the correct identifier (ID) for the entity mention from the list of candidates above.
+    DEFAULT_ANSWER_FORMAT_TEMPLATE = """
+        You must reply with a single JSON object exactly in the following structure:
+        {{"answer":"<BEST_ID_OR_NIL>","{ranking_key}":[{{"rank":1,"id":"<CANDIDATE_ID>","score":0.9500,"label":"<CANDIDATE_LABEL>"}}]}}
 
-        Respond using the following format, and nothing else:
+        Strict rules:
+        - Populate "answer" with the identifier of the best candidate. Use "NIL" if none apply.
+        - Populate "{ranking_key}" with the top {ranking_size} candidates sorted from best to worst.
+          If fewer than {ranking_size} candidates are available, include all of them.
+        - Every candidate entry must contain:
+          * "rank": an integer starting at 1 and increasing by 1 with each entry.
+          * "id": the candidate identifier string.
+          * "score": a float strictly between 0 and 1 (exclusive) with exactly {score_precision} decimal places.
+            Scores must strictly decrease as rank increases.
+          * "label": the short candidate name.
+          * Optional "description": concise supporting context (omit if unavailable).
+        - Do not add explanations, additional keys, Markdown, or text before/after the JSON.
 
-        ANSWER:{ID}
-
-        Instructions:
-        - Replace {ID} with the actual identifier (e.g., Q42, apple-234abc or Apple)
-        - If none of the candidates is correct, respond with: ANSWER:NIL
-        - Do not add any explanations, extra text, or formatting.
-        - The output must be exactly one line and must start with 'ANSWER:'
-
-        Examples:
-        - ANSWER:Q42
-        - ANSWER:apple-234abc
-        - ANSWER:Apple
-        - ANSWER:NIL
+        Example of a valid reply:
+        {{"answer":"Q42","{ranking_key}":[{{"rank":1,"id":"Q42","score":0.9500,"label":"Douglas Adams"}},{{"rank":2,"id":"Q123","score":0.7300,"label":"Somebody Else"}}]}}
     """  # noqa
+
+    ALLOWED_RANKING_SIZES = (3, 5)
+    RANKING_KEY = "candidate_ranking"
+    RANKING_SCORE_PRECISION = 4
 
     def __init__(
         self,
@@ -53,6 +59,7 @@ class LionLinker:
         gt_columns: list | None = None,
         table_ctx_size: int = 1,
         answer_format: str | None = None,
+        ranking_size: int = 5,
         **kwargs,
     ):
         """Initialize a LionLinker instance.
@@ -97,6 +104,9 @@ class LionLinker:
                 Defaults to 1.
             answer_format (str, optional): The format for the answer.
                 Defaults to None.
+            ranking_size (int, optional): Number of candidates to expose in the ranking output.
+                Must be either 3 or 5 and controls the scoring normalization.
+                Defaults to 5.
             **kwargs: Additional keyword arguments.
                       Supported hidden features:
                       - mention_to_qids: Dict mapping mentions to entity IDs to force in candidates
@@ -142,6 +152,23 @@ class LionLinker:
                 f"Got batch size: {self.chunk_size}, table context size: {self.table_ctx_size}"
             )
 
+        if ranking_size not in LionLinker.ALLOWED_RANKING_SIZES:
+            raise ValueError(
+                f"ranking_size must be one of {LionLinker.ALLOWED_RANKING_SIZES}. "
+                f"Got ranking_size: {ranking_size}"
+            )
+        self.ranking_size = ranking_size
+
+        default_answer_format = (
+            answer_format
+            if answer_format is not None
+            else LionLinker.DEFAULT_ANSWER_FORMAT_TEMPLATE.format(
+                ranking_key=LionLinker.RANKING_KEY,
+                ranking_size=self.ranking_size,
+                score_precision=LionLinker.RANKING_SCORE_PRECISION,
+            ).strip()
+        )
+
         logging.info(f"Model API provider is: {self.model_api_provider}")
         self.llm_interaction = LLMInteraction(
             self.model_name, self.model_api_provider, self.ollama_host, self.model_api_key
@@ -161,17 +188,15 @@ class LionLinker:
 
         # TableLlama checks
         if "osunlp" in model_name:
-            self.answer_format = ""
+            self.answer_format = default_answer_format
             self.table_summary = ""
             self.format_candidates = True
             self.prompt_template = "tablellama"
-            pattern_str = kwargs.get("id_extraction_pattern", r"Q\d+")
+            pattern_str = kwargs.get("id_extraction_pattern", r'"answer"\s*:\s*"([^"]+)"')
         else:
             self.table_summary = None
-            self.answer_format = answer_format or " ".join(
-                LionLinker.DEFAULT_ANSWER_FORMAT.split()
-            )
-            pattern_str = kwargs.get("id_extraction_pattern", r"ANSWER:\s*([^\s]+)")
+            self.answer_format = default_answer_format
+            pattern_str = kwargs.get("id_extraction_pattern", r'"answer"\s*:\s*"([^"]+)"')
 
         logging.info("Initializing components...")
         self.prompt_generator = PromptGenerator(
@@ -186,6 +211,187 @@ class LionLinker:
         # logging.info("Pulling model if necessary...")
         # self.llm_interaction.ollama_client.pull(self.model_name)
         logging.info("Setup completed.")
+
+    @classmethod
+    def _validate_candidate_ranking(
+        cls, formatted_ranking: str, entries: list[dict], requested_top_k: int
+    ) -> list[dict]:
+        if requested_top_k not in cls.ALLOWED_RANKING_SIZES:
+            raise ValueError(
+                f"requested_top_k must be one of {cls.ALLOWED_RANKING_SIZES}. "
+                f"Got requested_top_k: {requested_top_k}"
+            )
+
+        expected_prefix = f'{{"{cls.RANKING_KEY}":'
+        if not formatted_ranking.startswith(expected_prefix):
+            raise ValueError(
+                "Candidate ranking output must start with "
+                f'{expected_prefix}. Received: {formatted_ranking}'
+            )
+
+        if not entries:
+            if formatted_ranking != f'{{"{cls.RANKING_KEY}":[]}}':
+                raise ValueError(
+                    "Empty candidate rankings must be represented as "
+                    f'{{"{cls.RANKING_KEY}":[]}}. Received: {formatted_ranking}'
+                )
+            return []
+
+        if len(entries) > requested_top_k:
+            raise ValueError(
+                "Number of candidate ranking entries cannot exceed the requested top_k. "
+                f"Entries: {len(entries)}, requested_top_k: {requested_top_k}"
+            )
+
+        previous_rank = 0
+        previous_score = None
+        normalized_entries: list[dict] = []
+        for entry in entries:
+            rank = entry.get("rank")
+            if not isinstance(rank, int):
+                raise ValueError(
+                    "Candidate ranking 'rank' values must be integers. "
+                    f"Received {rank!r} of type {type(rank)}."
+                )
+
+            if rank != previous_rank + 1:
+                raise ValueError(
+                    "Candidate ranking entries must be sequential starting from 1. "
+                    f"Found rank sequence issue at rank {rank}."
+                )
+
+            score = entry.get("score")
+            if not isinstance(score, (int, float)):
+                raise ValueError(
+                    "Candidate ranking scores must be numeric. "
+                    f"Received type {type(score)} for rank {rank}."
+                )
+
+            score = round(float(score), cls.RANKING_SCORE_PRECISION)
+            if not 0 < score < 1:
+                raise ValueError(
+                    "Candidate ranking scores must be strictly within the (0, 1) interval. "
+                    f"Received score {score} for rank {rank}."
+                )
+
+            if previous_score is not None and score >= previous_score:
+                raise ValueError(
+                    "Candidate ranking scores must strictly decrease as rank increases. "
+                    f"Received score {score} after {previous_score}."
+                )
+
+            entry_id = entry.get("id")
+            if entry_id is None or entry_id == "":
+                raise ValueError("Candidate ranking entries must include a non-empty 'id' value.")
+
+            if not isinstance(entry_id, str):
+                raise ValueError(
+                    "Candidate ranking 'id' values must be strings. "
+                    f"Received {entry_id!r} of type {type(entry_id)}."
+                )
+
+            label = entry.get("label")
+            if not isinstance(label, str) or not label.strip():
+                raise ValueError(
+                    "Candidate ranking entries must include a non-empty 'label' string. "
+                    f"Received {label!r}."
+                )
+
+            description = entry.get("description")
+            if description is not None and not isinstance(description, str):
+                raise ValueError(
+                    "Candidate ranking 'description' values must be strings when provided. "
+                    f"Received {description!r} of type {type(description)}."
+                )
+
+            normalized_entry = {
+                "rank": rank,
+                "id": entry_id,
+                "score": score,
+                "label": label.strip(),
+            }
+            if description:
+                normalized_entry["description"] = description.strip()
+
+            normalized_entries.append(normalized_entry)
+            previous_rank = rank
+            previous_score = score
+
+        return normalized_entries
+
+    @classmethod
+    def _parse_llm_json(
+        cls, response: str, requested_top_k: int
+    ) -> tuple[str, str, str, list[dict]]:
+        if not response or not isinstance(response, str):
+            raise ValueError("LLM response must be a non-empty string containing JSON.")
+
+        response = response.strip()
+        try:
+            payload = json.loads(response)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"LLM response must be valid JSON. Received: {response}") from exc
+
+        if not isinstance(payload, dict):
+            raise ValueError("LLM response JSON must be an object with required keys.")
+
+        if "answer" not in payload:
+            raise ValueError('LLM response JSON must contain an "answer" field.')
+
+        answer = payload["answer"]
+        if not isinstance(answer, str) or not answer.strip():
+            raise ValueError('The "answer" field must be a non-empty string.')
+        answer = answer.strip()
+
+        if cls.RANKING_KEY not in payload:
+            raise ValueError(
+                f'LLM response JSON must contain a "{cls.RANKING_KEY}" field with candidate data.'
+            )
+
+        ranking_entries = payload[cls.RANKING_KEY]
+        if not isinstance(ranking_entries, list):
+            raise ValueError(
+                f'"{cls.RANKING_KEY}" must be a list of candidate ranking objects. '
+                f"Received: {type(ranking_entries)}"
+            )
+
+        normalized_entries = cls._validate_candidate_ranking(
+            json.dumps({cls.RANKING_KEY: ranking_entries}, separators=(",", ":")),
+            ranking_entries,
+            requested_top_k,
+        )
+
+        canonical_payload = {
+            "answer": answer,
+            cls.RANKING_KEY: normalized_entries,
+        }
+        canonical_payload_str = json.dumps(canonical_payload, separators=(",", ":"))
+        canonical_ranking_str = json.dumps(
+            {cls.RANKING_KEY: normalized_entries}, separators=(",", ":")
+        )
+
+        return canonical_payload_str, answer, canonical_ranking_str, normalized_entries
+
+    def _resolve_answer_identifier(self, answer: str, candidates: list[dict]) -> str:
+        if not answer:
+            return "No Identifier"
+
+        if answer.upper() == "NIL":
+            return "NIL"
+
+        candidate_ids = {
+            str(candidate.get("id")) for candidate in candidates if candidate.get("id") is not None
+        }
+        if answer in candidate_ids:
+            return answer
+
+        normalized_answer = answer.strip().lower()
+        for candidate in candidates:
+            name = candidate.get("name")
+            if name and normalized_answer == str(name).strip().lower():
+                return str(candidate.get("id"))
+
+        return answer
 
     def generate_table_summary(self, sample_data):
         # Exclude GT columns for testing
@@ -278,50 +484,35 @@ class LionLinker:
                     response = self.llm_interaction.chat(prompt)
                 except Exception as e:
                     logging.error(f"LLM interaction failed for mention '{entity_mention}': {e}")
-                    response = "ANSWER:NIL"  # fallback or you could raise if preferred
+                    response = '{"answer":"NIL","candidate_ranking":[]}'  # fallback
 
                 # Extract identifier from response
-                if "osunlp" in self.model_name:
-                    candidates2qid = {
-                        " ".join(
-                            (
-                                candidate["name"]
-                                + " [DESCRIPTION] "
-                                + (
-                                    candidate["description"]
-                                    if candidate["description"] is not None
-                                    else "None"
-                                )
-                                + " [TYPE] "
-                                + ",".join(
-                                    [
-                                        t["name"]
-                                        for t in candidate["types"]
-                                        if t["name"] is not None
-                                    ]
-                                )
-                            )
-                            .lower()
-                            .split()
-                        ): candidate["id"]
-                        for candidate in candidates
-                    }
-                    if response is not None:
-                        response = response.lower()
-                        response = response.replace("<", "", 1)
-                        response = "".join(response.rsplit(">", 1))
-                        response = " ".join(response.split())
-                        extracted_identifier = candidates2qid.get(response, "No Identifier")
-                    else:
-                        extracted_identifier = "None"
-                else:
-                    extracted_identifier = self.extract_identifier_from_response(response)
+                try:
+                    (
+                        canonical_payload,
+                        answer_identifier_raw,
+                        candidate_ranking,
+                        _,
+                    ) = LionLinker._parse_llm_json(response, self.ranking_size)
+                    extracted_identifier = self._resolve_answer_identifier(
+                        answer_identifier_raw, candidates
+                    )
+                except ValueError as parse_error:
+                    logging.error(
+                        "LLM response parsing failed for mention '%s': %s",
+                        entity_mention,
+                        parse_error,
+                    )
+                    canonical_payload = '{"answer":"NIL","candidate_ranking":[]}'
+                    candidate_ranking = '{"candidate_ranking":[]}'
+                    extracted_identifier = "No Identifier"
 
                 # Add column-specific results to the row
                 results_by_row[id_row][f"{column}_llm_answer"] = (
-                    " ".join(response.split()) if response is not None else "None"
+                    canonical_payload
                 )
                 results_by_row[id_row][f"{column}{self.prediction_suffix}"] = extracted_identifier
+                results_by_row[id_row][f"{column}_candidate_ranking"] = candidate_ranking
 
         # Convert to list of dictionaries
         results = list(results_by_row.values())
@@ -340,13 +531,17 @@ class LionLinker:
             str: The extracted identifier (e.g., 'Q42', 'apple-234abc', 'Apple') or 'NIL',
                 or 'No Identifier' if no valid match is found.
         """
-        # Look for all matches with optional whitespace after 'ANSWER:'
-        matches = self._compiled_id_pattern.findall(response)
+        if response is None:
+            return "No Identifier"
 
-        if matches:
-            return matches[-1]  # Return the last match found
-
-        return "No Identifier"
+        try:
+            _, answer, _, _ = LionLinker._parse_llm_json(response, self.ranking_size)
+            return answer
+        except ValueError:
+            matches = self._compiled_id_pattern.findall(response)
+            if matches:
+                return matches[-1]
+            return "No Identifier"
 
     async def estimate_total_rows(self):
         # Get the size of the file in bytes
@@ -487,9 +682,18 @@ class LionLinker:
         results = {}
         for col, prompt in prompt_sample.items():
             response = self.llm_interaction.chat(prompt)
+            try:
+                canonical_payload, answer, candidate_ranking, _ = LionLinker._parse_llm_json(
+                    response, self.ranking_size
+                )
+            except ValueError:
+                canonical_payload = response.replace("\n", "").strip()
+                answer = self.extract_identifier_from_response(response)
+                candidate_ranking = '{"candidate_ranking":[]}'
             results[col] = {
-                "response": response.replace("\n", "").strip(),
-                "extracted_identifier": self.extract_identifier_from_response(response),
+                "response": canonical_payload,
+                "extracted_identifier": answer,
+                "candidate_ranking": candidate_ranking,
             }
         return results
 
