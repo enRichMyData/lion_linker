@@ -1,0 +1,31 @@
+services:
+  mongo:
+    container_name: lion-mongo
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - ${MONGO_DATA:-../../data/mongo}:/data/db
+
+  lion:
+    container_name: lion-api
+    build:
+      context: ../../
+      dockerfile: docker/service/Dockerfile
+    ports:
+      - "${LION_API_PORT:-9000}:9000"
+    environment:
+      - OLLAMA_HOST=${OLLAMA_HOST}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - MONGO_URI=mongodb://mongo:27017
+      - MONGO_DB=${MONGO_DB:-lion_linker}
+      - MONGO_COLLECTION_PREFIX=${MONGO_COLLECTION_PREFIX:-lion}
+      - WORKSPACE_PATH=/data/api_runs
+      - LION_QUEUE_WORKERS=${LION_QUEUE_WORKERS:-4}
+    depends_on:
+      - mongo
+    volumes:
+      - ${LION_DATA:-../../data}:/data
+      - ${LION_APP_SRC:-../../app}:/app/app
+      - ${LION_LIB_SRC:-../../lion_linker}:/lion_linker

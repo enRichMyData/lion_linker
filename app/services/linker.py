@@ -49,6 +49,7 @@ class LinkerRunner:
     DEFAULT_CHUNK_SIZE = linker_defaults.DEFAULT_CHUNK_SIZE
     DEFAULT_TABLE_CTX_SIZE = linker_defaults.DEFAULT_TABLE_CTX_SIZE
     DEFAULT_OLLAMA_HOST: Optional[str] = linker_defaults.DEFAULT_OLLAMA_HOST
+    DEFAULT_OLLAMA_API_KEY: Optional[str] = linker_defaults.DEFAULT_OLLAMA_API_KEY
     DEFAULT_FORMAT_CANDIDATES = linker_defaults.DEFAULT_FORMAT_CANDIDATES
     DEFAULT_COMPACT_CANDIDATES = linker_defaults.DEFAULT_COMPACT_CANDIDATES
 
@@ -142,7 +143,7 @@ class LinkerRunner:
         lion_kwargs["model_api_key"] = self._get_option(
             lion_config,
             ["model_api_key"],
-            None,
+            self.DEFAULT_OLLAMA_API_KEY,
         )
 
         lion_kwargs["format_candidates"] = self._bool_option(
@@ -487,8 +488,14 @@ class LinkerRunner:
     ) -> List[ResultRow]:
         results: List[ResultRow] = []
         for row in table.rows:
+            empty_answer = []
             predictions = [
-                PredictionSummary(column=column, answer="ANSWER:NIL", identifier="NIL")
+                PredictionSummary(
+                    column=column,
+                    answer=empty_answer,
+                    identifier="NIL",
+                    parsedAnswer=empty_answer,
+                )
                 for column in mention_columns
             ]
             data = [str(value) if value is not None else "" for value in row.data]
@@ -546,7 +553,7 @@ class LinkerRunner:
 
             predictions: List[PredictionSummary] = []
             for column in mention_columns:
-                answer = row_series.get(f"{column}_llm_answer")
+                answer = row_series.get(f"{column}_candidate_ranking")
                 identifier = row_series.get(f"{column}_pred_id")
                 answer_str = answer.strip() if isinstance(answer, str) else None
                 identifier_str = identifier.strip() if isinstance(identifier, str) else None
@@ -554,11 +561,20 @@ class LinkerRunner:
                     answer_str = str(answer)
                 if identifier_str is None and identifier is not None and not pd.isna(identifier):
                     identifier_str = str(identifier)
+                parsed_answer: Optional[Any] = None
+                answer_payload: Optional[Any] = answer_str
+                if answer_str:
+                    try:
+                        parsed_answer = json.loads(answer_str)
+                        answer_payload = parsed_answer
+                    except json.JSONDecodeError:
+                        parsed_answer = None
                 predictions.append(
                     PredictionSummary(
                         column=column,
-                        answer=answer_str,
+                        answer=answer_payload,
                         identifier=identifier_str,
+                        parsedAnswer=parsed_answer,
                     )
                 )
 

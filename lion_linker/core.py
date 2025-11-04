@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import logging
 import os
 
 import ollama
@@ -7,7 +10,14 @@ from openai import OpenAI
 
 
 class LLMInteraction:
-    def __init__(self, model_name, model_api_provider, ollama_host=None, model_api_key=None):
+    def __init__(
+        self,
+        model_name,
+        model_api_provider,
+        ollama_host=None,
+        model_api_key=None,
+        ollama_headers: dict | None = None,
+    ):
         self.model_name = model_name
         self.model_api_provider = model_api_provider
         self.model_api_key = model_api_key
@@ -18,8 +28,19 @@ class LLMInteraction:
                 f"Provided: {self.model_api_provider}"
             )
         if self.model_api_provider == "ollama":
-            self.ollama_client = ollama.Client(ollama_host) if ollama_host else ollama.Client()
-            self.ollama_client.pull(model_name)
+            headers = ollama_headers.copy() if ollama_headers else {}
+            if model_api_key and "Authorization" not in headers:
+                headers["Authorization"] = f"Bearer {model_api_key}"
+
+            client_kwargs = {"headers": headers} if headers else {}
+            if ollama_host:
+                self.ollama_client = ollama.Client(host=ollama_host, **client_kwargs)
+            else:
+                self.ollama_client = ollama.Client(**client_kwargs)
+            try:
+                self.ollama_client.pull(model_name)
+            except Exception as exc:  # pragma: no cover - network dependent
+                logging.warning("Failed to pull Ollama model '%s': %s", model_name, exc)
         elif self.model_api_provider == "openrouter":
             self.openai_client = OpenAI(
                 base_url="https://openrouter.ai/api/v1",

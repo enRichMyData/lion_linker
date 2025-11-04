@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
-DEFAULT_MODEL_NAME = "gemma2:2b"
+DEFAULT_MODEL_NAME = "gpt-oss:20b"
 DEFAULT_MODEL_PROVIDER = "ollama"
 DEFAULT_CHUNK_SIZE = 64
 DEFAULT_TABLE_CTX_SIZE = 1
-DEFAULT_OLLAMA_HOST: Optional[str] = "http://ollama:11434"
+DEFAULT_OLLAMA_HOST: Optional[str] = os.getenv("OLLAMA_HOST", "http://ollama:11434")
+DEFAULT_OLLAMA_API_KEY: Optional[str] = os.getenv("OLLAMA_API_KEY")
 DEFAULT_FORMAT_CANDIDATES = True
 DEFAULT_COMPACT_CANDIDATES = True
 DEFAULT_RETRIEVER_NUM_CANDIDATES = 10
@@ -27,6 +29,8 @@ def default_lion_config() -> Dict[str, Any]:
     }
     if DEFAULT_OLLAMA_HOST is not None:
         config["ollama_host"] = DEFAULT_OLLAMA_HOST
+    if DEFAULT_OLLAMA_API_KEY:
+        config["model_api_key"] = DEFAULT_OLLAMA_API_KEY
     return config
 
 
