@@ -17,9 +17,7 @@
       "predictions": [
         {
           "column": "buyer",
-          "answer": "[{\"id\":\"Q124605186\",\"confidence_label\":\"HIGH\",\"confidence_score\":0.92},...]",
-          "identifier": "Q124605186",
-          "parsedAnswer": [
+          "answer": [
             {
               "id": "Q124605186",
               "confidence_label": "HIGH",
@@ -65,7 +63,8 @@
               "description": "Safety research group",
               "match": false
             }
-          ]
+          ],
+          "identifier": "Q124605186"
         }
       ]
     }

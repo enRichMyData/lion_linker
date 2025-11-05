@@ -494,7 +494,6 @@ class LinkerRunner:
                     column=column,
                     answer=empty_answer,
                     identifier="NIL",
-                    parsedAnswer=empty_answer,
                 )
                 for column in mention_columns
             ]
@@ -561,20 +560,31 @@ class LinkerRunner:
                     answer_str = str(answer)
                 if identifier_str is None and identifier is not None and not pd.isna(identifier):
                     identifier_str = str(identifier)
+
+                raw_answer: Optional[Any] = answer_str if answer_str is not None else None
+                if raw_answer is None and answer is not None and not pd.isna(answer):
+                    raw_answer = answer
+
                 parsed_answer: Optional[Any] = None
-                answer_payload: Optional[Any] = answer_str
                 if answer_str:
                     try:
                         parsed_answer = json.loads(answer_str)
-                        answer_payload = parsed_answer
                     except json.JSONDecodeError:
                         parsed_answer = None
+
+                combined_answer: Optional[Any]
+                if parsed_answer is not None:
+                    combined_answer = parsed_answer
+                elif raw_answer is not None:
+                    combined_answer = raw_answer
+                else:
+                    combined_answer = None
+
                 predictions.append(
                     PredictionSummary(
                         column=column,
-                        answer=answer_payload,
+                        answer=combined_answer,
                         identifier=identifier_str,
-                        parsedAnswer=parsed_answer,
                     )
                 )
 

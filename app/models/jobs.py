@@ -41,8 +41,6 @@ class PredictionSummary(BaseModel):
     column: str
     answer: Optional[Any] = None
     identifier: Optional[str] = None
-    parsed_answer: Optional[Any] = Field(default=None, alias="parsedAnswer")
-
     class Config:
         populate_by_name = True
 
