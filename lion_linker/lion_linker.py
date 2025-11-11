@@ -65,7 +65,7 @@ class LionLinker:
         retriever: RetrieverClient,
         output_csv: str | None = None,
         prompt_template: str = "base",
-        chunk_size: int = 3,
+        chunk_size: int = 16,
         mention_columns: list | None = None,
         format_candidates: bool = True,
         compact_candidates: bool = True,
