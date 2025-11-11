@@ -57,7 +57,7 @@ class LionLinker:
     ALLOWED_RANKING_SIZES = (3, 5)
     RANKING_KEY = "candidate_ranking"
     RANKING_SCORE_PRECISION = 4
-    print("Default answer format:", DEFAULT_ANSWER_FORMAT_TEMPLATE, flush=True)
+ 
     def __init__(
         self,
         input_csv: str | Path,
