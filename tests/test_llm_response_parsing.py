@@ -23,13 +23,15 @@ class LLMResponseParsingTests(unittest.TestCase):
                     {"id": "Q888", "confidence_label": "LOW", "confidence_score": 0.18},
                 ],
                 "nil_score": 0.12,
+                "explanation": "Top candidates closely match the mention context.",
             }
         )
 
-        ranking, nil_score = self.lion._parse_llm_json(response)
+        ranking, nil_score, explanation = self.lion._parse_llm_json(response)
 
         self.assertEqual(5, len(ranking))
         self.assertAlmostEqual(0.12, nil_score, places=2)
+        self.assertTrue(explanation)
         self.assertEqual(
             {"id": "Q42", "confidence_label": "HIGH", "confidence_score": 0.92},
             ranking[0],
@@ -41,13 +43,15 @@ class LLMResponseParsingTests(unittest.TestCase):
                 "candidate_ranking": [
                     {"id": "Q2", "confidence_label": "LOW", "confidence_score": 0.4},
                     {"id": "Q1", "confidence_label": "HIGH", "confidence_score": 0.9},
-                ]
+                ],
+                "explanation": "Q1 scored higher confidence than Q2.",
             }
         )
 
-        ranking, nil_score = self.lion._parse_llm_json(response)
+        ranking, nil_score, explanation = self.lion._parse_llm_json(response)
 
         self.assertIsNone(nil_score)
+        self.assertTrue(explanation)
         self.assertEqual(["Q1", "Q2"], [entry["id"] for entry in ranking])
 
     def test_parse_llm_json_allows_nil_entry(self):
@@ -55,14 +59,16 @@ class LLMResponseParsingTests(unittest.TestCase):
             {
                 "candidate_ranking": [
                     {"id": "NIL", "confidence_label": "HIGH", "confidence_score": 0.8}
-                ]
+                ],
+                "explanation": "No provided candidate matched the context.",
             }
         )
 
-        ranking, nil_score = self.lion._parse_llm_json(response)
+        ranking, nil_score, explanation = self.lion._parse_llm_json(response)
 
         self.assertEqual(1, len(ranking))
         self.assertIsNone(nil_score)
+        self.assertTrue(explanation)
         self.assertEqual("NIL", ranking[0]["id"])
 
     def test_parse_llm_json_requires_confidence_score(self):
@@ -70,7 +76,8 @@ class LLMResponseParsingTests(unittest.TestCase):
             {
                 "candidate_ranking": [
                     {"id": "Q1", "confidence_label": "HIGH"}
-                ]
+                ],
+                "explanation": "Missing confidence score triggers a failure.",
             }
         )
 
@@ -82,11 +89,42 @@ class LLMResponseParsingTests(unittest.TestCase):
             {
                 "candidate_ranking": [],
                 "answer": "Q42",
+                "explanation": "Contains an unexpected key.",
             }
         )
 
         with self.assertRaises(ValueError):
             self.lion._parse_llm_json(response)
+
+    def test_parse_llm_json_requires_explanation(self):
+        response = json.dumps(
+            {
+                "candidate_ranking": [
+                    {"id": "Q1", "confidence_label": "HIGH", "confidence_score": 0.8}
+                ]
+            }
+        )
+
+        with self.assertRaises(ValueError):
+            self.lion._parse_llm_json(response)
+
+    def test_parse_llm_json_handles_nil_score_and_explanation(self):
+        response = json.dumps(
+            {
+                "candidate_ranking": [
+                    {"id": "NIL", "confidence_label": "HIGH", "confidence_score": 0.9},
+                    {"id": "Q1", "confidence_label": "LOW", "confidence_score": 0.25},
+                ],
+                "nil_score": 0.88,
+                "explanation": "Mention clearly references no known entity.",
+            }
+        )
+
+        ranking, nil_score, explanation = self.lion._parse_llm_json(response)
+
+        self.assertEqual("NIL", ranking[0]["id"])
+        self.assertAlmostEqual(0.88, nil_score, places=2)
+        self.assertEqual("Mention clearly references no known entity.", explanation)
 
     def test_determine_predicted_identifier_requires_high_confidence(self):
         entries = [

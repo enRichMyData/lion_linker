@@ -28,4 +28,4 @@ services:
     volumes:
       - ${LION_DATA:-../../data}:/data
       - ${LION_APP_SRC:-../../app}:/app/app
-      - ${LION_LIB_SRC:-../../lion_linker}:/lion_linker
+      - ${LION_LIB_SRC:-../../lion_linker}:/app/lion_linker

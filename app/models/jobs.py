@@ -56,7 +56,6 @@ class ResultRow(BaseModel):
     idRow: int
     data: List[str]
     predictions: List[PredictionSummary]
-    annotationMeta: Optional[AnnotationMeta] = None
 
 
 class JobStatusResponse(BaseModel):
@@ -68,6 +67,7 @@ class JobStatusResponse(BaseModel):
     perPage: int
     totalRows: int
     rows: List[ResultRow]
+    annotationMeta: Optional[AnnotationMeta] = None
     message: Optional[str] = None
     updatedAt: datetime
     predictionBatches: Optional[int] = None

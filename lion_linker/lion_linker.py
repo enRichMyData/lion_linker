@@ -21,28 +21,43 @@ class LionLinker:
     DEFAULT_ANSWER_FORMAT_TEMPLATE = """
         Reply with a single JSON object in exactly this shape (no extra text):
         {{
-          "{ranking_key}": [
-            {example_entries}
-          ]
+            "{ranking_key}": [
+                {{
+                "id": "<CANDIDATE_ID>",
+                "confidence_label": "<HIGH|MEDIUM|LOW|null>",
+                "confidence_score": <float|null>
+                }}
+            ],
+            "explanation": "<short reasoning of the final decision>"
         }}
 
-        Rules:
-        - Return between 1 and {ranking_size} candidate entries, sorted by descending "confidence_score".
-        - Every entry must include the keys "id", "confidence_label", "confidence_score".
-        - "confidence_score" must lie in [0, 1].
-        - Derive "confidence_label" from the score:
-            * HIGH   if confidence_score ≥ 0.70
-            * MEDIUM if 0.40 ≤ confidence_score < 0.70
-            * LOW    if confidence_score < 0.40
-        - Score only the provided candidates. Do not invent extra candidates.
-        - If you believe none of the provided candidates match, respond with a single entry where "id" is "NIL".
-        - Keep the output free from explanations, Markdown, trailing commas, or additional keys.
-    """  # noqa
+        Instructions:
+        1. Always return the JSON object with both fields "{ranking_key}" and "explanation".
+        2. Return between 1 and {ranking_size} candidates, sorted by descending "confidence_score", except in the NIL case.
+        3. Each candidate must have the keys "id", "confidence_label", "confidence_score".
+        4. "confidence_score" must lie in [0, 1]. Map it to "confidence_label" as:
+        - HIGH if confidence_score ≥ 0.70
+        - MEDIUM if 0.40 ≤ confidence_score < 0.70
+        - LOW if confidence_score < 0.40
+        5. If none of the provided candidates fits, return:
+        - First entry:
+            {{
+            "id": "NIL",
+            "confidence_label": "LOW",
+            "confidence_score": 0
+            }}
+        - Then append all the original candidates (top5) in the same order as presented in the prompt, each with:
+            "confidence_label": null,
+            "confidence_score": null
+        Use "explanation" to state why NIL was selected.
+        6. Do not invent candidates. Score only the candidates that were provided in the prompt.
+        7. Keep the output strictly valid JSON with no Markdown and no trailing commas.
+    """.strip()
 
     ALLOWED_RANKING_SIZES = (3, 5)
     RANKING_KEY = "candidate_ranking"
     RANKING_SCORE_PRECISION = 4
-
+    print("Default answer format:", DEFAULT_ANSWER_FORMAT_TEMPLATE, flush=True)
     def __init__(
         self,
         input_csv: str | Path,
@@ -50,7 +65,7 @@ class LionLinker:
         retriever: RetrieverClient,
         output_csv: str | None = None,
         prompt_template: str = "base",
-        chunk_size: int = 64,
+        chunk_size: int = 3,
         mention_columns: list | None = None,
         format_candidates: bool = True,
         compact_candidates: bool = True,
@@ -181,30 +196,13 @@ class LionLinker:
             )
         self.nil_insert_delta = nil_insert_delta
 
-        example_score_template = [
-            (0.92, "HIGH"),
-            (0.63, "MEDIUM"),
-            (0.31, "LOW"),
-            (0.24, "LOW"),
-            (0.18, "LOW"),
-        ]
-        score_label_pairs = example_score_template[: self.ranking_size] or [(0.75, "HIGH")]
-        example_entries_parts: list[str] = []
-        for score, label in score_label_pairs:
-            example_entries_parts.append(
-                '{{"id": "<QID>", "confidence_label": "{label}", '
-                '"confidence_score": {score:.2f}}}'.format(label=label, score=score)
-            )
-        example_entries_str = ",".join(example_entries_parts)
-
         default_answer_format = (
             answer_format
             if answer_format is not None
             else LionLinker.DEFAULT_ANSWER_FORMAT_TEMPLATE.format(
                 ranking_key=LionLinker.RANKING_KEY,
-                example_entries=example_entries_str,
                 ranking_size=self.ranking_size,
-            ).strip()
+            )
         )
 
         logging.info(f"Model API provider is: {self.model_api_provider}")
@@ -269,6 +267,16 @@ class LionLinker:
         if not isinstance(entries, list):
             raise ValueError("Candidate ranking must be provided as a list of objects.")
 
+        nil_mode = False
+        if entries:
+            first_entry = entries[0]
+            if isinstance(first_entry, dict):
+                first_id = first_entry.get("id")
+                if isinstance(first_id, str) and first_id.strip().upper() == "NIL":
+                    nil_mode = True
+
+        max_entries = requested_top_k + 1 if nil_mode else requested_top_k
+
         normalized_with_order: list[dict] = []
         for order_idx, entry in enumerate(entries):
             if not isinstance(entry, dict):
@@ -282,23 +290,37 @@ class LionLinker:
                 raise ValueError("Candidate ranking entries must include a non-empty string 'id'.")
 
             score_value = entry.get("confidence_score")
-            if not isinstance(score_value, (int, float)):
-                raise ValueError(
-                    "confidence_score must be numeric. "
-                    f"Received type {type(score_value)} for id {candidate_id}."
-                )
-            score = round(float(score_value), cls.RANKING_SCORE_PRECISION)
-            if not 0 <= score <= 1:
-                raise ValueError(
-                    "confidence_score must be within [0, 1]. "
-                    f"Received {score} for id {candidate_id}."
-                )
+            score: float | None
+            if score_value is None:
+                if not nil_mode or order_idx == 0:
+                    raise ValueError(
+                        "confidence_score must be numeric. "
+                        f"Received null for id {candidate_id}."
+                    )
+                score = None
+            else:
+                if not isinstance(score_value, (int, float)):
+                    raise ValueError(
+                        "confidence_score must be numeric. "
+                        f"Received type {type(score_value)} for id {candidate_id}."
+                    )
+                score = round(float(score_value), cls.RANKING_SCORE_PRECISION)
+                if not 0 <= score <= 1:
+                    raise ValueError(
+                        "confidence_score must be within [0, 1]. "
+                        f"Received {score} for id {candidate_id}."
+                    )
 
             label_value = entry.get("confidence_label")
             if isinstance(label_value, str):
-                canonical_label = label_value.strip().upper()
+                canonical_label = label_value.strip().upper() or None
+            elif label_value is None:
+                canonical_label = None
             else:
-                canonical_label = ""
+                raise ValueError(
+                    "confidence_label must be a string or null. "
+                    f"Received type {type(label_value)} for id {candidate_id}."
+                )
 
             normalized_with_order.append(
                 {
@@ -312,13 +334,18 @@ class LionLinker:
         if not normalized_with_order:
             return []
 
-        normalized_with_order.sort(
-            key=lambda item: (-item["confidence_score"], item["_order"])
-        )
-
         trimmed: list[dict] = []
         seen_ids: set[str] = set()
-        for item in normalized_with_order:
+
+        if nil_mode:
+            iterable = normalized_with_order
+        else:
+            iterable = sorted(
+                normalized_with_order,
+                key=lambda item: (-item["confidence_score"], item["_order"]),
+            )
+
+        for item in iterable:
             candidate_id_upper = item["id"].upper()
             if candidate_id_upper in seen_ids:
                 continue
@@ -330,12 +357,14 @@ class LionLinker:
                     "confidence_score": item["confidence_score"],
                 }
             )
-            if len(trimmed) >= requested_top_k:
+            if len(trimmed) >= max_entries:
                 break
 
         return trimmed
 
-    def _parse_llm_json(self, response: str) -> tuple[list[dict], float | None]:
+    DEFAULT_EXPLANATION_FALLBACK = "LLM response did not include an explanation."
+
+    def _parse_llm_json(self, response: str) -> tuple[list[dict], float | None, str]:
         if not response or not isinstance(response, str):
             raise ValueError("LLM response must be a non-empty string containing JSON.")
 
@@ -348,7 +377,11 @@ class LionLinker:
         if not isinstance(payload, dict):
             raise ValueError("LLM response JSON must be an object containing the ranking key only.")
 
-        unexpected_keys = set(payload.keys()) - {self.RANKING_KEY, "nil_score"}
+        unexpected_keys = set(payload.keys()) - {
+            self.RANKING_KEY,
+            "nil_score",
+            "explanation",
+        }
         if unexpected_keys:
             raise ValueError(
                 "LLM response must not contain unexpected top-level keys. "
@@ -375,11 +408,20 @@ class LionLinker:
             if not 0 <= nil_score <= 1:
                 raise ValueError("nil_score must be within [0, 1].")
 
-        return normalized_entries, nil_score
+        if "explanation" not in payload:
+            raise ValueError(
+                'LLM response JSON must contain an "explanation" string summarizing the decision.'
+            )
+        explanation_raw = payload["explanation"]
+        if not isinstance(explanation_raw, str):
+            raise ValueError('"explanation" must be a string.')
+        explanation = explanation_raw.strip() or self.DEFAULT_EXPLANATION_FALLBACK
+
+        return normalized_entries, nil_score, explanation
 
 
-    def _default_nil_payload(self) -> tuple[list[dict], float | None]:
-        return [], None
+    def _default_nil_payload(self) -> tuple[list[dict], float | None, str]:
+        return [], None, self.DEFAULT_EXPLANATION_FALLBACK
 
     def _determine_predicted_identifier(
         self, ranking_entries: list[dict], nil_score: float | None
@@ -568,15 +610,21 @@ class LionLinker:
                 identifier = row.get(pred_col)
 
                 ranking_entries: list[dict] = []
+                explanation_value: str | None = None
                 if isinstance(raw_answer, str) and raw_answer:
                     try:
                         payload = json.loads(raw_answer)
                         if isinstance(payload, dict):
                             ranking_entries = payload.get(self.RANKING_KEY, []) or []
+                            explanation_raw = payload.get("explanation")
+                            if isinstance(explanation_raw, str):
+                                explanation_value = explanation_raw.strip()
                         elif isinstance(payload, list):
                             ranking_entries = payload
                     except (ValueError, TypeError):
                         ranking_entries = []
+                if not explanation_value:
+                    explanation_value = self.DEFAULT_EXPLANATION_FALLBACK
 
                 candidate_metadata: list[dict] = []
                 if isinstance(raw_metadata, str) and raw_metadata:
@@ -601,7 +649,11 @@ class LionLinker:
                     candidate_metadata,
                     predicted_identifier,
                 )
-                enriched_answers.append(json.dumps(enriched_ranking, ensure_ascii=False))
+                enriched_payload = {
+                    self.RANKING_KEY: enriched_ranking,
+                    "explanation": explanation_value,
+                }
+                enriched_answers.append(json.dumps(enriched_payload, ensure_ascii=False))
 
             if enriched_answers:
                 df[ranking_col] = enriched_answers
@@ -713,27 +765,35 @@ class LionLinker:
                     response = '{"candidate_ranking":[]}'  # fallback
 
                 try:
-                    ranking_entries, nil_score = self._parse_llm_json(response)
+                    ranking_entries, nil_score, explanation = self._parse_llm_json(response)
                 except ValueError as parse_error:
                     logging.error(
                         "LLM response parsing failed for mention '%s': %s",
                         entity_mention,
                         parse_error,
                     )
-                    ranking_entries, nil_score = self._default_nil_payload()
+                    ranking_entries, nil_score, explanation = self._default_nil_payload()
 
                 predicted_identifier = self._determine_predicted_identifier(
                     ranking_entries,
                     nil_score,
                 )
-                answer_json = json.dumps(ranking_entries, ensure_ascii=False)
+                answer_payload = {
+                    self.RANKING_KEY: ranking_entries,
+                    "explanation": explanation,
+                }
                 enriched_ranking = self._enrich_candidate_ranking(
                     ranking_entries,
                     candidates,
                     predicted_identifier,
                     nil_score,
                 )
-                candidate_ranking_json = json.dumps(enriched_ranking, ensure_ascii=False)
+                api_answer_payload = {
+                    self.RANKING_KEY: enriched_ranking,
+                    "explanation": explanation,
+                }
+                candidate_ranking_json = json.dumps(api_answer_payload, ensure_ascii=False)
+                answer_json = json.dumps(answer_payload, ensure_ascii=False)
 
                 # Add column-specific results to the row
                 results_by_row[id_row][f"{column}_llm_answer"] = answer_json
@@ -761,7 +821,7 @@ class LionLinker:
             return "No Identifier"
 
         try:
-            ranking_entries, nil_score = self._parse_llm_json(response)
+            ranking_entries, nil_score, _ = self._parse_llm_json(response)
             return self._determine_predicted_identifier(ranking_entries, nil_score)
         except ValueError:
             matches = self._compiled_id_pattern.findall(response)
@@ -928,10 +988,10 @@ class LionLinker:
 
             response = self.llm_interaction.chat(prompt)
             try:
-                ranking_entries, nil_score = self._parse_llm_json(response)
+                ranking_entries, nil_score, explanation = self._parse_llm_json(response)
             except ValueError:
                 logging.warning("Failed to parse LLM response for column '%s'", col)
-                ranking_entries, nil_score = self._default_nil_payload()
+                ranking_entries, nil_score, explanation = self._default_nil_payload()
 
             predicted_identifier = self._determine_predicted_identifier(
                 ranking_entries,
@@ -941,8 +1001,13 @@ class LionLinker:
                 ranking_entries,
                 candidates,
                 predicted_identifier,
+                nil_score,
             )
-            answer_json = json.dumps(ranking_entries, ensure_ascii=False)
+            answer_payload = {
+                self.RANKING_KEY: ranking_entries,
+                "explanation": explanation,
+            }
+            answer_json = json.dumps(answer_payload, ensure_ascii=False)
             results[col] = {
                 "prompt": prompt,
                 "response": answer_json,

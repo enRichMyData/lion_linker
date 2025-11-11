@@ -441,6 +441,7 @@ class LinkerRunner:
             "input_csv": str(paths.input_csv),
             "output_csv": str(paths.output_csv),
             "retriever": retriever,
+            "batch_size": 3
         }
         kwargs.update(merged_kwargs)
         return LionLinker(**kwargs)
@@ -553,6 +554,7 @@ class LinkerRunner:
             predictions: List[PredictionSummary] = []
             for column in mention_columns:
                 answer = row_series.get(f"{column}_candidate_ranking")
+                llm_answer = row_series.get(f"{column}_llm_answer")
                 identifier = row_series.get(f"{column}_pred_id")
                 answer_str = answer.strip() if isinstance(answer, str) else None
                 identifier_str = identifier.strip() if isinstance(identifier, str) else None
@@ -572,8 +574,38 @@ class LinkerRunner:
                     except json.JSONDecodeError:
                         parsed_answer = None
 
+                llm_answer_payload: Optional[dict] = None
+                if isinstance(llm_answer, str) and llm_answer.strip():
+                    try:
+                        llm_answer_payload = json.loads(llm_answer)
+                    except json.JSONDecodeError:
+                        llm_answer_payload = None
+
+                candidate_ranking_value: Optional[Any] = None
+                explanation_value: Optional[str] = None
+                if isinstance(parsed_answer, dict):
+                    candidate_ranking_value = (
+                        parsed_answer.get("candidate_ranking")
+                        or parsed_answer.get(LionLinker.RANKING_KEY)
+                    )
+                    explanation_raw = parsed_answer.get("explanation")
+                    if isinstance(explanation_raw, str):
+                        explanation_value = explanation_raw
+                elif isinstance(parsed_answer, list):
+                    candidate_ranking_value = parsed_answer
+
+                if not explanation_value and llm_answer_payload:
+                    explanation_raw = llm_answer_payload.get("explanation")
+                    if isinstance(explanation_raw, str):
+                        explanation_value = explanation_raw
+
                 combined_answer: Optional[Any]
-                if parsed_answer is not None:
+                if candidate_ranking_value is not None or explanation_value is not None:
+                    combined_answer = {
+                        "candidate_ranking": candidate_ranking_value or [],
+                        "explanation": explanation_value,
+                    }
+                elif parsed_answer is not None:
                     combined_answer = parsed_answer
                 elif raw_answer is not None:
                     combined_answer = raw_answer
