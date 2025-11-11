@@ -52,7 +52,11 @@ class LionLinker:
         Use "explanation" to state why NIL was selected.
         6. Do not invent candidates. Score only the candidates that were provided in the prompt.
         7. Keep the output strictly valid JSON with no Markdown and no trailing commas.
-        8. In explanation do not use double quotes inside the field so "explanation":"<your explanation here> (no double quotes in here but single quote is allowed)".
+        8. Very important: the value of "explanation" must not contain the double quote character (").
+            - If you need to mention text that originally contains double quotes (for example: COMPANIA NATIONALA DE CAI FERATE "CFR" - SA), rewrite the inner double quotes as single quotes, like this: COMPANIA NATIONALA DE CAI FERATE 'CFR' - SA.
+            - You can also rewrite small fragments using single quotes instead of double quotes.
+            - Never output the character " inside the explanation string.
+        9. Keep the output strictly valid JSON with no Markdown and no trailing commas.
     """.strip()
 
     ALLOWED_RANKING_SIZES = (3, 5)
