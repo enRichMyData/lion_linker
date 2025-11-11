@@ -52,6 +52,7 @@ class LionLinker:
         Use "explanation" to state why NIL was selected.
         6. Do not invent candidates. Score only the candidates that were provided in the prompt.
         7. Keep the output strictly valid JSON with no Markdown and no trailing commas.
+        8. Try not to use any special characters (e.g., quotes) in the explanation, to avoid invalid JSON.
     """.strip()
 
     ALLOWED_RANKING_SIZES = (3, 5)
