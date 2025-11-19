@@ -26,6 +26,7 @@ dependencies = [
     "ollama==0.3.3",
     "aiohttp==3.12.14",
     "asyncio==3.4.3",
+    "cerebras-cloud-sdk==1.59.0",
     "tqdm==4.67.0",
     "openai==1.54.4",
     "python-dotenv==1.0.1",

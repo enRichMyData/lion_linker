@@ -74,7 +74,11 @@ The .env file will be used to securely store your Retriever credentials and othe
 ```bash
 OPENAI_API_KEY=sk-v1-...
 ```
-which can be retreived from the [OpenRouter settings](https://openrouter.ai/settings/keys).
+which can be retreived from the [OpenRouter settings](https://openrouter.ai/settings/keys). If you plan to use [Cerebras Cloud](https://cloud.cerebras.ai/), set the following instead:
+```bash
+CEREBRAS_API_KEY=....
+```
+You can create or rotate Cerebras keys from the [Cerebras console](https://cloud.cerebras.ai/).
 
 3.	Verify the .env file by checking that RETRIEVER_ENDPOINT and RETRIEVER_TOKEN are correctly set, as these values will be automatically loaded by lion_linker when it runs.
 
@@ -111,7 +115,7 @@ retriever_token = os.getenv("RETRIEVER_TOKEN")
 # Additional parameters as per the latest LionLinker version
 mention_columns = ["title"]  # Columns to link entities from
 compact_candidates = True  # Whether to compact candidates list
-model_api_provider = "ollama"  # Optional model API provider
+model_api_provider = "ollama"  # e.g. "ollama", "openrouter", "huggingface", or "cerebras"
 ollama_host = "http://localhost:11434"  # Default Ollama host if not specified it will use the Default Ollama host anyway
 model_api_key = None  # Optional model API key if required
 gt_columns = []  # Specify any ground truth columns to exclude for testing
@@ -145,6 +149,25 @@ await lion_linker.run()
 
 # Stop the Ollama server
 process.terminate()
+```
+
+### Using Cerebras Cloud
+
+To call hosted models via Cerebras Cloud, set `model_api_provider="cerebras"` and supply a Cerebras model name (for example `llama-3.3-70b`). You can pass the key explicitly or rely on the `CEREBRAS_API_KEY` environment variable.
+
+```python
+import os
+
+from lion_linker.lion_linker import LionLinker
+
+lion_linker = LionLinker(
+    input_csv=input_csv,
+    model_name="llama-3.3-70b",
+    retriever=retriever,
+    mention_columns=mention_columns,
+    model_api_provider="cerebras",
+    model_api_key=os.getenv("CEREBRAS_API_KEY"),
+)
 ```
 
 ### CLI Example
@@ -265,13 +288,13 @@ You can override LionLinker settings per request by attaching optional `lionConf
     {"idRow": 2, "data": ["Petrie Museum of Egyptian Archaeology", "London"]}
   ],
   "lionConfig": {
-    "chunkSize": 16,
-    "mentionColumns": ["Point of Interest"],
-    "tableCtxSize": 2,
-    "modelName": "gemma2:2b"
+    "chunk_size": 16,
+    "mention_columns": ["Point of Interest"],
+    "table_ctx_size": 2,
+    "model_name": "gemma2:2b"
   },
   "retrieverConfig": {
-    "numCandidates": 5,
+    "num_candidates": 5,
     "endpoint": "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval",
     "token": "lamapi_demo_2023"
   }

@@ -24,6 +24,8 @@ certifi==2025.8.3
     #   httpcore
     #   httpx
     #   requests
+cerebras-cloud-sdk==1.59.0
+    # via lion-linker
 charset-normalizer==3.4.3
     # via requests
 click==8.2.1

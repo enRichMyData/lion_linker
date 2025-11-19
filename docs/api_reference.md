@@ -211,9 +211,9 @@ All keys use snake_case and map directly to `LionLinker` parameters:
 | `few_shot_examples_file_path` | string | Path to few-shot examples. |
 | `format_candidates` | boolean | Whether to format candidates (defaults to true). |
 | `compact_candidates` | boolean | Whether to compact candidate entries (defaults to true). |
-| `model_api_provider` | string | One of `ollama`, `openrouter`, `huggingface`. |
+| `model_api_provider` | string | One of `ollama`, `openrouter`, `huggingface`, `cerebras`. |
 | `ollama_host` | string | Base URL for Ollama (default `http://ollama:11434`). |
-| `model_api_key` | string | API key, required for OpenRouter. |
+| `model_api_key` | string | API key, required for OpenRouter/Cerebras unless env vars are set. |
 | `gt_columns` | array[string] | Columns to exclude from processing. |
 | `answer_format` | string | Custom answer format. |
 | `prediction_batch_size` | integer | Overrides default Mongo batch size (defaults to env `PREDICTION_BATCH_ROWS`). |
