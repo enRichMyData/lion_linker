@@ -239,9 +239,9 @@ Content-Type: application/json
             <tr><td>few_shot_examples_file_path</td><td>string</td><td>Few-shot examples file path.</td></tr>
             <tr><td>format_candidates</td><td>boolean</td><td>Format retriever candidates (default true).</td></tr>
             <tr><td>compact_candidates</td><td>boolean</td><td>Compact candidates when formatting is disabled (default true).</td></tr>
-            <tr><td>model_api_provider</td><td>string</td><td><code>ollama</code> | <code>openrouter</code> | <code>huggingface</code>; defaults to <code>ollama</code>.</td></tr>
+            <tr><td>model_api_provider</td><td>string</td><td><code>ollama</code> | <code>openrouter</code> | <code>huggingface</code> | <code>cerebras</code>; defaults to <code>ollama</code>.</td></tr>
             <tr><td>ollama_host</td><td>string</td><td>Base URL for the Ollama service (default <code>http://ollama:11434</code>).</td></tr>
-            <tr><td>model_api_key</td><td>string</td><td>API key for providers that require it (e.g. OpenRouter).</td></tr>
+            <tr><td>model_api_key</td><td>string</td><td>API key for providers that require it (OpenRouter, Cerebras).</td></tr>
             <tr><td>gt_columns</td><td>array[string]</td><td>Columns excluded from prediction.</td></tr>
             <tr><td>answer_format</td><td>string</td><td>Custom answer format.</td></tr>
             <tr><td>prediction_batch_size</td><td>integer</td><td>Overrides default Mongo batch size for predictions.</td></tr>

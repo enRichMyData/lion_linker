@@ -20,7 +20,8 @@ services:
       context: ../../  # Build context is the root of your project
       dockerfile: docker/cli/Dockerfile
     environment:
-      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
       - RETRIEVER_ENDPOINT=https://lamapi.hel.sintef.cloud/lookup/entity-retrieval  # Replace with your actual endpoint
       - RETRIEVER_TOKEN=lamapi_demo_2023  # Replace with your actual token
     depends_on:

@@ -239,16 +239,28 @@ def main() -> None:
 
         if status == "completed":
             rows_payload = status_payload.get("rows", [])
+            annotation_meta = status_payload.get("annotationMeta")
             print(f"\nTop {len(rows_payload)} annotated rows:")
             for row in rows_payload:
                 title = row["data"][0]
-                predictions = ", ".join(
-                    f"{pred['column']} → {pred['answer']}" for pred in row.get("predictions", [])
-                )
+                formatted_predictions = []
+                for pred in row.get("predictions", []):
+                    answer = pred.get("answer")
+                    if isinstance(answer, dict):
+                        explanation = answer.get("explanation")
+                        ranking = answer.get("candidate_ranking")
+                        formatted_predictions.append(
+                            f"{pred['column']} → ranking={ranking} explanation={explanation}"
+                        )
+                    else:
+                        formatted_predictions.append(f"{pred['column']} → {answer}")
+                predictions = ", ".join(formatted_predictions)
                 print(f"  • {title}: {predictions or 'no predictions returned'}")
-                meta = row.get("annotationMeta")
-                if meta:
-                    print(f"    meta job={meta.get('jobId')} updatedAt={meta.get('updatedAt')}")
+            if annotation_meta:
+                print(
+                    f"Shared annotation meta: job={annotation_meta.get('jobId')} "
+                    f"updatedAt={annotation_meta.get('updatedAt')}"
+                )
             break
         if status == "failed":
             raise RuntimeError(f"Annotation failed: {message}")

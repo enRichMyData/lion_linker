@@ -39,8 +39,10 @@ class JobRecord(BaseModel):
 
 class PredictionSummary(BaseModel):
     column: str
-    answer: Optional[str] = None
+    answer: Optional[Any] = None
     identifier: Optional[str] = None
+    class Config:
+        populate_by_name = True
 
 
 class AnnotationMeta(BaseModel):
@@ -54,7 +56,6 @@ class ResultRow(BaseModel):
     idRow: int
     data: List[str]
     predictions: List[PredictionSummary]
-    annotationMeta: Optional[AnnotationMeta] = None
 
 
 class JobStatusResponse(BaseModel):
@@ -66,6 +67,7 @@ class JobStatusResponse(BaseModel):
     perPage: int
     totalRows: int
     rows: List[ResultRow]
+    annotationMeta: Optional[AnnotationMeta] = None
     message: Optional[str] = None
     updatedAt: datetime
     predictionBatches: Optional[int] = None

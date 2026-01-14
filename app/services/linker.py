@@ -49,6 +49,7 @@ class LinkerRunner:
     DEFAULT_CHUNK_SIZE = linker_defaults.DEFAULT_CHUNK_SIZE
     DEFAULT_TABLE_CTX_SIZE = linker_defaults.DEFAULT_TABLE_CTX_SIZE
     DEFAULT_OLLAMA_HOST: Optional[str] = linker_defaults.DEFAULT_OLLAMA_HOST
+    DEFAULT_OLLAMA_API_KEY: Optional[str] = linker_defaults.DEFAULT_OLLAMA_API_KEY
     DEFAULT_FORMAT_CANDIDATES = linker_defaults.DEFAULT_FORMAT_CANDIDATES
     DEFAULT_COMPACT_CANDIDATES = linker_defaults.DEFAULT_COMPACT_CANDIDATES
 
@@ -142,7 +143,7 @@ class LinkerRunner:
         lion_kwargs["model_api_key"] = self._get_option(
             lion_config,
             ["model_api_key"],
-            None,
+            self.DEFAULT_OLLAMA_API_KEY,
         )
 
         lion_kwargs["format_candidates"] = self._bool_option(
@@ -440,6 +441,7 @@ class LinkerRunner:
             "input_csv": str(paths.input_csv),
             "output_csv": str(paths.output_csv),
             "retriever": retriever,
+            "batch_size": 3
         }
         kwargs.update(merged_kwargs)
         return LionLinker(**kwargs)
@@ -487,8 +489,13 @@ class LinkerRunner:
     ) -> List[ResultRow]:
         results: List[ResultRow] = []
         for row in table.rows:
+            empty_answer = []
             predictions = [
-                PredictionSummary(column=column, answer="ANSWER:NIL", identifier="NIL")
+                PredictionSummary(
+                    column=column,
+                    answer=empty_answer,
+                    identifier="NIL",
+                )
                 for column in mention_columns
             ]
             data = [str(value) if value is not None else "" for value in row.data]
@@ -546,7 +553,8 @@ class LinkerRunner:
 
             predictions: List[PredictionSummary] = []
             for column in mention_columns:
-                answer = row_series.get(f"{column}_llm_answer")
+                answer = row_series.get(f"{column}_candidate_ranking")
+                llm_answer = row_series.get(f"{column}_llm_answer")
                 identifier = row_series.get(f"{column}_pred_id")
                 answer_str = answer.strip() if isinstance(answer, str) else None
                 identifier_str = identifier.strip() if isinstance(identifier, str) else None
@@ -554,10 +562,60 @@ class LinkerRunner:
                     answer_str = str(answer)
                 if identifier_str is None and identifier is not None and not pd.isna(identifier):
                     identifier_str = str(identifier)
+
+                raw_answer: Optional[Any] = answer_str if answer_str is not None else None
+                if raw_answer is None and answer is not None and not pd.isna(answer):
+                    raw_answer = answer
+
+                parsed_answer: Optional[Any] = None
+                if answer_str:
+                    try:
+                        parsed_answer = json.loads(answer_str)
+                    except json.JSONDecodeError:
+                        parsed_answer = None
+
+                llm_answer_payload: Optional[dict] = None
+                if isinstance(llm_answer, str) and llm_answer.strip():
+                    try:
+                        llm_answer_payload = json.loads(llm_answer)
+                    except json.JSONDecodeError:
+                        llm_answer_payload = None
+
+                candidate_ranking_value: Optional[Any] = None
+                explanation_value: Optional[str] = None
+                if isinstance(parsed_answer, dict):
+                    candidate_ranking_value = (
+                        parsed_answer.get("candidate_ranking")
+                        or parsed_answer.get(LionLinker.RANKING_KEY)
+                    )
+                    explanation_raw = parsed_answer.get("explanation")
+                    if isinstance(explanation_raw, str):
+                        explanation_value = explanation_raw
+                elif isinstance(parsed_answer, list):
+                    candidate_ranking_value = parsed_answer
+
+                if not explanation_value and llm_answer_payload:
+                    explanation_raw = llm_answer_payload.get("explanation")
+                    if isinstance(explanation_raw, str):
+                        explanation_value = explanation_raw
+
+                combined_answer: Optional[Any]
+                if candidate_ranking_value is not None or explanation_value is not None:
+                    combined_answer = {
+                        "candidate_ranking": candidate_ranking_value or [],
+                        "explanation": explanation_value,
+                    }
+                elif parsed_answer is not None:
+                    combined_answer = parsed_answer
+                elif raw_answer is not None:
+                    combined_answer = raw_answer
+                else:
+                    combined_answer = None
+
                 predictions.append(
                     PredictionSummary(
                         column=column,
-                        answer=answer_str,
+                        answer=combined_answer,
                         identifier=identifier_str,
                     )
                 )

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.dependencies import get_store, get_task_queue
 from app.models.dataset import DatasetPayload, DatasetResponse, TableAnnotationRequest
 from app.models.jobs import (
+    AnnotationMeta,
     JobEnqueueResponse,
     JobInfoResponse,
     JobStatus,
@@ -215,8 +216,9 @@ async def job_status(
     total_rows = job.total_rows or len(table.rows)
     message = job.message
     rows: List[ResultRow] = []
+    annotation_meta_payload: Optional[dict] = None
     if job.status == JobStatus.completed:
-        predictions = await store.get_predictions_page(
+        predictions, annotation_meta_payload = await store.get_predictions_page(
             job.dataset_id, job.table_id, page, per_page, row_ids=job.row_ids
         )
         if predictions:
@@ -228,6 +230,24 @@ async def job_status(
             )
             rows = [ResultRow.model_validate(item) for item in subset]
 
+    if annotation_meta_payload:
+        try:
+            annotation_meta = AnnotationMeta.model_validate(annotation_meta_payload)
+        except Exception:  # pragma: no cover - defensive
+            annotation_meta = AnnotationMeta(
+                jobId=job.job_id,
+                updatedAt=job.updated_at,
+                lionConfig=job.lion_config,
+                retrieverConfig=job.retriever_config,
+            )
+    else:
+        annotation_meta = AnnotationMeta(
+            jobId=job.job_id,
+            updatedAt=job.updated_at,
+            lionConfig=job.lion_config,
+            retrieverConfig=job.retriever_config,
+        )
+
     response = JobStatusResponse(
         datasetId=dataset_id,
         tableId=table_id,
@@ -237,6 +257,7 @@ async def job_status(
         perPage=per_page,
         totalRows=total_rows,
         rows=rows,
+        annotationMeta=annotation_meta,
         message=message,
         updatedAt=job.updated_at,
         predictionBatches=job.prediction_batches,

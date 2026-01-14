@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import logging
 import os
 
 import ollama
@@ -5,26 +8,62 @@ import openai
 import torch
 from openai import OpenAI
 
+try:
+    from cerebras.cloud.sdk import Cerebras
+except ImportError:  # pragma: no cover - optional dependency
+    Cerebras = None
+
 
 class LLMInteraction:
-    def __init__(self, model_name, model_api_provider, ollama_host=None, model_api_key=None):
+    def __init__(
+        self,
+        model_name,
+        model_api_provider,
+        ollama_host=None,
+        model_api_key=None,
+        ollama_headers: dict | None = None,
+    ):
         self.model_name = model_name
         self.model_api_provider = model_api_provider
         self.model_api_key = model_api_key
 
-        if self.model_api_provider.lower() not in {"ollama", "openrouter", "huggingface"}:
+        if self.model_api_provider.lower() not in {"ollama", "openrouter", "huggingface", "cerebras"}:
             raise ValueError(
-                "The model api provider must be one of 'ollama', 'openrouter' or 'huggingface'."
+                "The model api provider must be one of 'ollama', 'openrouter', 'huggingface', or 'cerebras'."
                 f"Provided: {self.model_api_provider}"
             )
         if self.model_api_provider == "ollama":
-            self.ollama_client = ollama.Client(ollama_host) if ollama_host else ollama.Client()
-            self.ollama_client.pull(model_name)
+            headers = ollama_headers.copy() if ollama_headers else {}
+            if model_api_key and "Authorization" not in headers:
+                headers["Authorization"] = f"Bearer {model_api_key}"
+
+            client_kwargs = {"headers": headers} if headers else {}
+            if ollama_host:
+                self.ollama_client = ollama.Client(host=ollama_host, **client_kwargs)
+            else:
+                self.ollama_client = ollama.Client(**client_kwargs)
+            try:
+                self.ollama_client.pull(model_name)
+            except Exception as exc:  # pragma: no cover - network dependent
+                logging.warning("Failed to pull Ollama model '%s': %s", model_name, exc)
         elif self.model_api_provider == "openrouter":
             self.openai_client = OpenAI(
                 base_url="https://openrouter.ai/api/v1",
                 api_key=model_api_key or os.getenv("OPENAI_API_KEY", None),
             )
+        elif self.model_api_provider == "cerebras":
+            if Cerebras is None:
+                raise ImportError(
+                    "cerebras-cloud-sdk is required for the 'cerebras' provider. "
+                    "Install it with `pip install cerebras-cloud-sdk`."
+                )
+            api_key = model_api_key or os.getenv("CEREBRAS_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    "Cerebras API key not provided. "
+                    "Pass `model_api_key` or set the CEREBRAS_API_KEY environment variable."
+                )
+            self.cerebras_client = Cerebras(api_key=api_key)
 
         # Initialize Hugging Face components if needed
         if self.model_api_provider == "huggingface":
@@ -98,6 +137,8 @@ class LLMInteraction:
             return self._chat_openai(message, *args, stream=stream, **kwargs)
         elif self.model_api_provider == "huggingface":
             return self._chat_huggingface(message, *args, stream=stream, **kwargs)
+        elif self.model_api_provider == "cerebras":
+            return self._chat_cerebras(message, *args, stream=stream, **kwargs)
         else:
             raise ValueError(f"Unsupported API provider: {self.model_api_provider}")
 
@@ -121,6 +162,22 @@ class LLMInteraction:
         # Assuming there's at least one response and taking the last one as the chatbot's reply.
         result = response.choices[0].message.content
         return result
+
+    def _chat_cerebras(self, message, *args, stream=False, **kwargs):
+        """Chat using the Cerebras Cloud SDK."""
+        completion = self.cerebras_client.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": message}],
+            **kwargs,
+        )
+
+        choices = getattr(completion, "choices", None)
+        if not choices:
+            return ""
+        message_obj = choices[0].message
+        if isinstance(message_obj, dict):
+            return message_obj.get("content", "")
+        return getattr(message_obj, "content", str(message_obj))
 
     def _chat_huggingface(self, message, *args, stream=False, **kwargs):
         """Chat using Hugging Face transformers."""

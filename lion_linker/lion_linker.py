@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import json
 import logging
 import os
 import re
@@ -15,26 +18,47 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 class LionLinker:
-    DEFAULT_ANSWER_FORMAT = """
-        Identify the correct identifier (ID) for the entity mention from the list of candidates above.
+    DEFAULT_ANSWER_FORMAT_TEMPLATE = """
+        ANSWER FORMAT (IMPORTANT):
+        Return ONLY a JSON object with exactly these top-level keys (no extra text):
+        {{
+            "{ranking_key}": [
+                {{
+                    "id": "<CANDIDATE_ID>",
+                    "confidence_label": "<HIGH|MEDIUM|LOW|null>",
+                    "confidence_score": <float|null>
+                }}
+            ],
+            "explanation": "<short reasoning of the final decision>"
+        }}
 
-        Respond using the following format, and nothing else:
+        Rules:
+        1. Always return the JSON object with both fields "{ranking_key}" and "explanation".
+        2. Return between 1 and {ranking_size} candidates, sorted by descending "confidence_score",
+           except in the NIL case.
+        3. Each candidate must have the keys "id", "confidence_label", "confidence_score".
+        4. Confidence scores and labels:
+           - "confidence_score" must be in [0, 1].
+           - HIGH if confidence_score ≥ 0.70
+           - MEDIUM if 0.40 ≤ confidence_score < 0.70
+           - LOW if confidence_score < 0.40
+        5. If none of the provided candidates fits:
+           - Set {ranking_key}[0] = {{ "id": "NIL", "confidence_label": "LOW", "confidence_score": 0 }}.
+           - Then append the original candidates (up to the first {ranking_size}) in the same order
+             as presented in the prompt, each with "confidence_label": null and "confidence_score": null.
+           - Use "explanation" to state why NIL was selected.
+        6. Do not invent candidates. Score only the candidates that were provided in the prompt.
+        7. The final output must be valid JSON (no Markdown, no trailing commas).
+        8. Very important: the value of "explanation" must not contain the double quote character (").
+           - If you need to mention text that originally contains double quotes, rewrite them as single
+             quotes.
+           - Never output the character " inside the explanation string.
+    """.strip()
 
-        ANSWER:{ID}
-
-        Instructions:
-        - Replace {ID} with the actual identifier (e.g., Q42, apple-234abc or Apple)
-        - If none of the candidates is correct, respond with: ANSWER:NIL
-        - Do not add any explanations, extra text, or formatting.
-        - The output must be exactly one line and must start with 'ANSWER:'
-
-        Examples:
-        - ANSWER:Q42
-        - ANSWER:apple-234abc
-        - ANSWER:Apple
-        - ANSWER:NIL
-    """  # noqa
-
+    ALLOWED_RANKING_SIZES = (3, 5)
+    RANKING_KEY = "candidate_ranking"
+    RANKING_SCORE_PRECISION = 4
+ 
     def __init__(
         self,
         input_csv: str | Path,
@@ -42,7 +66,7 @@ class LionLinker:
         retriever: RetrieverClient,
         output_csv: str | None = None,
         prompt_template: str = "base",
-        chunk_size: int = 64,
+        chunk_size: int = 16,
         mention_columns: list | None = None,
         format_candidates: bool = True,
         compact_candidates: bool = True,
@@ -53,6 +77,9 @@ class LionLinker:
         gt_columns: list | None = None,
         table_ctx_size: int = 1,
         answer_format: str | None = None,
+        ranking_size: int = 5,
+        match_confidence_threshold: float = 0.5,
+        nil_insert_delta: float = 0.05,
         **kwargs,
     ):
         """Initialize a LionLinker instance.
@@ -80,12 +107,12 @@ class LionLinker:
                 This is only used if `format_candidates` is False.
                 Defaults to True.
             model_api_provider (str, optional): The provider for the model API.
-                Supported providers: "ollama", "openrouter", "huggingface".
+                Supported providers: "ollama", "openrouter", "huggingface", "cerebras".
                 Defaults to "ollama".
             ollama_host (str, optional): The host for the Ollama service.
                 Defaults to None.
             model_api_key (str, optional): The API key for the model service.
-                Required for "openrouter" providers.
+                Required for "openrouter" and "cerebras" providers when no env variable is found.
                 Defaults to None.
             few_shot_examples_file_path (str, optional): The file path to
                 the few shot examples file.
@@ -97,6 +124,13 @@ class LionLinker:
                 Defaults to 1.
             answer_format (str, optional): The format for the answer.
                 Defaults to None.
+            ranking_size (int, optional): Maximum number of candidates to request from the LLM.
+                Must be either 3 or 5. Defaults to 5.
+            match_confidence_threshold (float, optional): Minimum probability the top-ranked
+                candidate must achieve (combined with a HIGH confidence label) to be marked as
+                the final match. Must fall within (0, 1]. Defaults to 0.5.
+            nil_insert_delta (float, optional): Deprecated; retained for backwards compatibility.
+                It no longer affects the ranking behaviour.
             **kwargs: Additional keyword arguments.
                       Supported hidden features:
                       - mention_to_qids: Dict mapping mentions to entity IDs to force in candidates
@@ -142,9 +176,43 @@ class LionLinker:
                 f"Got batch size: {self.chunk_size}, table context size: {self.table_ctx_size}"
             )
 
+        if ranking_size not in LionLinker.ALLOWED_RANKING_SIZES:
+            raise ValueError(
+                f"ranking_size must be one of {LionLinker.ALLOWED_RANKING_SIZES}. "
+                f"Got ranking_size: {ranking_size}"
+            )
+        self.ranking_size = ranking_size
+
+        if not 0 < match_confidence_threshold <= 1:
+            raise ValueError(
+                "match_confidence_threshold must be within the (0, 1] interval. "
+                f"Got: {match_confidence_threshold}"
+            )
+        self.match_confidence_threshold = match_confidence_threshold
+
+        if nil_insert_delta < 0:
+            raise ValueError(
+                "nil_insert_delta must be non-negative. "
+                f"Got: {nil_insert_delta}"
+            )
+        self.nil_insert_delta = nil_insert_delta
+
+        default_answer_format = (
+            answer_format
+            if answer_format is not None
+            else LionLinker.DEFAULT_ANSWER_FORMAT_TEMPLATE.format(
+                ranking_key=LionLinker.RANKING_KEY,
+                ranking_size=self.ranking_size,
+            )
+        )
+
         logging.info(f"Model API provider is: {self.model_api_provider}")
         self.llm_interaction = LLMInteraction(
-            self.model_name, self.model_api_provider, self.ollama_host, self.model_api_key
+            self.model_name,
+            self.model_api_provider,
+            self.ollama_host,
+            self.model_api_key,
+            ollama_headers=kwargs.get("ollama_headers"),
         )
 
         # Hidden parameter for mention to entity ID mapping
@@ -161,17 +229,15 @@ class LionLinker:
 
         # TableLlama checks
         if "osunlp" in model_name:
-            self.answer_format = ""
+            self.answer_format = default_answer_format
             self.table_summary = ""
             self.format_candidates = True
             self.prompt_template = "tablellama"
-            pattern_str = kwargs.get("id_extraction_pattern", r"Q\d+")
+            pattern_str = kwargs.get("id_extraction_pattern", r'"id"\s*:\s*"([^"]+)"')
         else:
             self.table_summary = None
-            self.answer_format = answer_format or " ".join(
-                LionLinker.DEFAULT_ANSWER_FORMAT.split()
-            )
-            pattern_str = kwargs.get("id_extraction_pattern", r"ANSWER:\s*([^\s]+)")
+            self.answer_format = default_answer_format
+            pattern_str = kwargs.get("id_extraction_pattern", r'"id"\s*:\s*"([^"]+)"')
 
         logging.info("Initializing components...")
         self.prompt_generator = PromptGenerator(
@@ -186,6 +252,425 @@ class LionLinker:
         # logging.info("Pulling model if necessary...")
         # self.llm_interaction.ollama_client.pull(self.model_name)
         logging.info("Setup completed.")
+        self._prompt_candidate_cache: dict[str, list[dict]] = {}
+
+    @classmethod
+    def _validate_candidate_ranking(cls, entries: list[dict], requested_top_k: int) -> list[dict]:
+        if requested_top_k not in cls.ALLOWED_RANKING_SIZES:
+            raise ValueError(
+                f"requested_top_k must be one of {cls.ALLOWED_RANKING_SIZES}. "
+                f"Got requested_top_k: {requested_top_k}"
+            )
+
+        if entries is None:
+            entries = []
+
+        if not isinstance(entries, list):
+            raise ValueError("Candidate ranking must be provided as a list of objects.")
+
+        nil_mode = False
+        if entries:
+            first_entry = entries[0]
+            if isinstance(first_entry, dict):
+                first_id = first_entry.get("id")
+                if isinstance(first_id, str) and first_id.strip().upper() == "NIL":
+                    nil_mode = True
+
+        max_entries = requested_top_k + 1 if nil_mode else requested_top_k
+
+        normalized_with_order: list[dict] = []
+        for order_idx, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                raise ValueError("Each candidate ranking entry must be a JSON object.")
+
+            raw_id = entry.get("id")
+            if not isinstance(raw_id, str):
+                raise ValueError("Candidate ranking entries must include a string 'id'.")
+            candidate_id = raw_id.strip()
+            if not candidate_id:
+                raise ValueError("Candidate ranking entries must include a non-empty string 'id'.")
+
+            score_value = entry.get("confidence_score")
+            score: float | None
+            if score_value is None:
+                if not nil_mode or order_idx == 0:
+                    raise ValueError(
+                        "confidence_score must be numeric. "
+                        f"Received null for id {candidate_id}."
+                    )
+                score = None
+            else:
+                if not isinstance(score_value, (int, float)):
+                    raise ValueError(
+                        "confidence_score must be numeric. "
+                        f"Received type {type(score_value)} for id {candidate_id}."
+                    )
+                score = round(float(score_value), cls.RANKING_SCORE_PRECISION)
+                if not 0 <= score <= 1:
+                    raise ValueError(
+                        "confidence_score must be within [0, 1]. "
+                        f"Received {score} for id {candidate_id}."
+                    )
+
+            label_value = entry.get("confidence_label")
+            if isinstance(label_value, str):
+                canonical_label = label_value.strip().upper() or None
+            elif label_value is None:
+                canonical_label = None
+            else:
+                raise ValueError(
+                    "confidence_label must be a string or null. "
+                    f"Received type {type(label_value)} for id {candidate_id}."
+                )
+
+            normalized_with_order.append(
+                {
+                    "_order": order_idx,
+                    "id": candidate_id,
+                    "confidence_label": canonical_label,
+                    "confidence_score": score,
+                }
+            )
+
+        if not normalized_with_order:
+            return []
+
+        trimmed: list[dict] = []
+        seen_ids: set[str] = set()
+
+        if nil_mode:
+            iterable = normalized_with_order
+        else:
+            iterable = sorted(
+                normalized_with_order,
+                key=lambda item: (-item["confidence_score"], item["_order"]),
+            )
+
+        for item in iterable:
+            candidate_id_upper = item["id"].upper()
+            if candidate_id_upper in seen_ids:
+                continue
+            seen_ids.add(candidate_id_upper)
+            trimmed.append(
+                {
+                    "id": item["id"],
+                    "confidence_label": item["confidence_label"],
+                    "confidence_score": item["confidence_score"],
+                }
+            )
+            if len(trimmed) >= max_entries:
+                break
+
+        return trimmed
+
+    DEFAULT_EXPLANATION_FALLBACK = "LLM response did not include an explanation."
+
+    def _parse_llm_json(self, response: str) -> tuple[list[dict], float | None, str]:
+        if not response or not isinstance(response, str):
+            raise ValueError("LLM response must be a non-empty string containing JSON.")
+
+        response = response.strip()
+        try:
+            payload = json.loads(response)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"LLM response must be valid JSON. Received: {response}") from exc
+
+        if not isinstance(payload, dict):
+            raise ValueError("LLM response JSON must be an object containing the ranking key only.")
+
+        unexpected_keys = set(payload.keys()) - {
+            self.RANKING_KEY,
+            "nil_score",
+            "explanation",
+        }
+        if unexpected_keys:
+            raise ValueError(
+                "LLM response must not contain unexpected top-level keys. "
+                f"Found: {', '.join(sorted(unexpected_keys))}"
+            )
+
+        if self.RANKING_KEY not in payload:
+            raise ValueError(
+                f'LLM response JSON must contain a "{self.RANKING_KEY}" list.'
+            )
+
+        ranking_entries = payload[self.RANKING_KEY]
+        normalized_entries = LionLinker._validate_candidate_ranking(
+            ranking_entries,
+            self.ranking_size,
+        )
+
+        nil_score: float | None = None
+        if "nil_score" in payload:
+            nil_score_value = payload["nil_score"]
+            if not isinstance(nil_score_value, (int, float)):
+                raise ValueError("nil_score must be numeric.")
+            nil_score = float(nil_score_value)
+            if not 0 <= nil_score <= 1:
+                raise ValueError("nil_score must be within [0, 1].")
+
+        if "explanation" not in payload:
+            raise ValueError(
+                'LLM response JSON must contain an "explanation" string summarizing the decision.'
+            )
+        explanation_raw = payload["explanation"]
+        if not isinstance(explanation_raw, str):
+            raise ValueError('"explanation" must be a string.')
+        explanation = explanation_raw.strip() or self.DEFAULT_EXPLANATION_FALLBACK
+
+        return normalized_entries, nil_score, explanation
+
+
+    def _default_nil_payload(self) -> tuple[list[dict], float | None, str]:
+        return [], None, self.DEFAULT_EXPLANATION_FALLBACK
+
+    def _determine_predicted_identifier(
+        self, ranking_entries: list[dict], nil_score: float | None
+    ) -> str:
+        if nil_score is not None:
+            nil_score = max(0.0, min(1.0, float(nil_score)))
+
+        if not ranking_entries:
+            return "NIL"
+
+        top_entry = ranking_entries[0]
+        candidate_id = str(top_entry.get("id", "")).strip()
+        if not candidate_id or candidate_id.upper() == "NIL":
+            return "NIL"
+
+        score = float(top_entry.get("confidence_score", 0.0))
+        label = str(top_entry.get("confidence_label", "")).upper()
+
+        if nil_score is not None and nil_score >= max(score, self.match_confidence_threshold):
+            return "NIL"
+
+        if score >= self.match_confidence_threshold and label == "HIGH":
+            return candidate_id
+
+        return "NIL"
+
+    def _enrich_candidate_ranking(
+        self,
+        ranked_entries: list[dict],
+        candidates: list[dict],
+        predicted_identifier: str,
+        nil_score: float | None = None,
+    ) -> list[dict]:
+        if nil_score is not None:
+            nil_score = max(0.0, min(1.0, float(nil_score)))
+
+        candidate_lookup: dict[str, dict] = {}
+        for candidate in candidates:
+            candidate_id = candidate.get("id")
+            if candidate_id is None:
+                continue
+            candidate_id_str = str(candidate_id).strip()
+            if not candidate_id_str:
+                continue
+            candidate_lookup[candidate_id_str] = candidate
+            candidate_lookup[candidate_id_str.upper()] = candidate
+
+        effective_entries: list[dict] = [dict(entry) for entry in ranked_entries or []]
+        if not effective_entries and candidates:
+            for candidate in candidates[: self.ranking_size]:
+                candidate_id = candidate.get("id")
+                if candidate_id is None:
+                    continue
+                candidate_id_str = str(candidate_id).strip()
+                if not candidate_id_str:
+                    continue
+                effective_entries.append(
+                    {
+                        "id": candidate_id_str,
+                        "confidence_label": None,
+                        "confidence_score": None,
+                    }
+                )
+
+        fallback_score = nil_score if nil_score is not None else 0.0
+        fallback_score = max(0.0, min(1.0, fallback_score))
+        fallback_score = round(fallback_score, self.RANKING_SCORE_PRECISION)
+        if fallback_score >= 0.70:
+            fallback_label = "HIGH"
+        elif fallback_score >= 0.40:
+            fallback_label = "MEDIUM"
+        else:
+            fallback_label = "LOW"
+
+        if predicted_identifier.upper() == "NIL":
+            nil_entry_found = False
+            for entry in effective_entries:
+                entry_id = str(entry.get("id", "")).strip()
+                if entry_id.upper() == "NIL":
+                    entry.setdefault("confidence_label", fallback_label)
+                    entry.setdefault("confidence_score", fallback_score)
+                    nil_entry_found = True
+                    break
+            if not nil_entry_found:
+                effective_entries.insert(
+                    0,
+                    {
+                        "id": "NIL",
+                        "confidence_label": fallback_label,
+                        "confidence_score": fallback_score,
+                    },
+                )
+
+        enriched_entries: list[dict] = []
+        for entry in effective_entries:
+            entry_id = str(entry.get("id", "")).strip()
+            if not entry_id:
+                continue
+
+            score_value = entry.get("confidence_score")
+            if isinstance(score_value, (int, float)):
+                score = round(float(score_value), self.RANKING_SCORE_PRECISION)
+            else:
+                score = None
+            label_value = entry.get("confidence_label")
+            if isinstance(label_value, str) and label_value.strip():
+                label = label_value.strip().upper()
+            elif score is not None:
+                if score >= 0.70:
+                    label = "HIGH"
+                elif score >= 0.40:
+                    label = "MEDIUM"
+                else:
+                    label = "LOW"
+            else:
+                label = None
+
+            base_info = candidate_lookup.get(entry_id) if entry_id.upper() != "NIL" else {}
+            if not base_info and entry_id.upper() != "NIL":
+                base_info = candidate_lookup.get(entry_id.upper(), {})
+
+            raw_types = base_info.get("types", []) if isinstance(base_info, dict) else []
+            types: list[dict[str, str]] = []
+            for type_info in raw_types or []:
+                if isinstance(type_info, dict):
+                    type_id = type_info.get("id")
+                    type_name = type_info.get("name")
+                    if type_id or type_name:
+                        types.append(
+                            {
+                                "id": str(type_id).strip() if type_id not in (None, "") else "",
+                                "name": str(type_name).strip() if type_name not in (None, "") else "",
+                            }
+                        )
+                elif isinstance(type_info, str):
+                    types.append({"id": "", "name": type_info.strip()})
+
+            description_value = ""
+            if isinstance(base_info, dict):
+                description_raw = base_info.get("description")
+                if description_raw not in (None, ""):
+                    description_value = str(description_raw)
+
+            name_value = ""
+            if isinstance(base_info, dict):
+                candidate_name = base_info.get("name")
+                if candidate_name not in (None, ""):
+                    name_value = str(candidate_name)
+
+            enriched_entry = {
+                "id": entry_id,
+                "confidence_label": label,
+                "confidence_score": score,
+                "name": name_value,
+                "types": types,
+                "description": description_value,
+                "match": entry_id.upper() == predicted_identifier.upper(),
+            }
+            enriched_entries.append(enriched_entry)
+
+        return enriched_entries
+
+    def _enrich_output_csv(self) -> None:
+        if not os.path.exists(self.output_csv):
+            return
+
+        df = pd.read_csv(self.output_csv)
+        updated = False
+        metadata_cols_to_drop = [col for col in df.columns if col.endswith("_candidate_metadata")]
+
+        for column in self.mention_columns:
+            answer_col = f"{column}_llm_answer"
+            metadata_col = f"{column}_candidate_metadata"
+            pred_col = f"{column}{self.prediction_suffix}"
+            ranking_col = f"{column}_candidate_ranking"
+            if answer_col not in df.columns:
+                continue
+
+            if ranking_col in df.columns and df[ranking_col].notna().any():
+                continue
+
+            enriched_answers: list[str] = []
+            for _, row in df.iterrows():
+                raw_answer = row.get(answer_col)
+                raw_metadata = row.get(metadata_col)
+                identifier = row.get(pred_col)
+
+                ranking_entries: list[dict] = []
+                explanation_value: str | None = None
+                if isinstance(raw_answer, str) and raw_answer:
+                    try:
+                        payload = json.loads(raw_answer)
+                        if isinstance(payload, dict):
+                            ranking_entries = payload.get(self.RANKING_KEY, []) or []
+                            explanation_raw = payload.get("explanation")
+                            if isinstance(explanation_raw, str):
+                                explanation_value = explanation_raw.strip()
+                        elif isinstance(payload, list):
+                            ranking_entries = payload
+                    except (ValueError, TypeError):
+                        ranking_entries = []
+                if not explanation_value:
+                    explanation_value = self.DEFAULT_EXPLANATION_FALLBACK
+
+                candidate_metadata: list[dict] = []
+                if isinstance(raw_metadata, str) and raw_metadata:
+                    try:
+                        metadata_payload = json.loads(raw_metadata)
+                        if isinstance(metadata_payload, list):
+                            candidate_metadata = metadata_payload
+                    except (ValueError, TypeError):
+                        candidate_metadata = []
+
+                try:
+                    final_rank_entries = LionLinker._validate_candidate_ranking(
+                        ranking_entries,
+                        self.ranking_size,
+                    )
+                except ValueError:
+                    final_rank_entries = []
+
+                predicted_identifier = str(identifier).strip() if isinstance(identifier, str) else ""
+                enriched_ranking = self._enrich_candidate_ranking(
+                    final_rank_entries,
+                    candidate_metadata,
+                    predicted_identifier,
+                )
+                enriched_payload = {
+                    self.RANKING_KEY: enriched_ranking,
+                    "explanation": explanation_value,
+                }
+                enriched_answers.append(json.dumps(enriched_payload, ensure_ascii=False))
+
+            if enriched_answers:
+                df[ranking_col] = enriched_answers
+                updated = True
+
+        if metadata_cols_to_drop:
+            df = df.drop(columns=metadata_cols_to_drop)
+            updated = True
+
+        if updated:
+            df.to_csv(
+                self.output_csv,
+                index=False,
+                quoting=1,
+                escapechar="\\",
+            )
 
     def generate_table_summary(self, sample_data):
         # Exclude GT columns for testing
@@ -278,50 +763,43 @@ class LionLinker:
                     response = self.llm_interaction.chat(prompt)
                 except Exception as e:
                     logging.error(f"LLM interaction failed for mention '{entity_mention}': {e}")
-                    response = "ANSWER:NIL"  # fallback or you could raise if preferred
+                    response = '{"candidate_ranking":[]}'  # fallback
 
-                # Extract identifier from response
-                if "osunlp" in self.model_name:
-                    candidates2qid = {
-                        " ".join(
-                            (
-                                candidate["name"]
-                                + " [DESCRIPTION] "
-                                + (
-                                    candidate["description"]
-                                    if candidate["description"] is not None
-                                    else "None"
-                                )
-                                + " [TYPE] "
-                                + ",".join(
-                                    [
-                                        t["name"]
-                                        for t in candidate["types"]
-                                        if t["name"] is not None
-                                    ]
-                                )
-                            )
-                            .lower()
-                            .split()
-                        ): candidate["id"]
-                        for candidate in candidates
-                    }
-                    if response is not None:
-                        response = response.lower()
-                        response = response.replace("<", "", 1)
-                        response = "".join(response.rsplit(">", 1))
-                        response = " ".join(response.split())
-                        extracted_identifier = candidates2qid.get(response, "No Identifier")
-                    else:
-                        extracted_identifier = "None"
-                else:
-                    extracted_identifier = self.extract_identifier_from_response(response)
+                try:
+                    ranking_entries, nil_score, explanation = self._parse_llm_json(response)
+                except ValueError as parse_error:
+                    logging.error(
+                        "LLM response parsing failed for mention '%s': %s",
+                        entity_mention,
+                        parse_error,
+                    )
+                    ranking_entries, nil_score, explanation = self._default_nil_payload()
+
+                predicted_identifier = self._determine_predicted_identifier(
+                    ranking_entries,
+                    nil_score,
+                )
+                answer_payload = {
+                    self.RANKING_KEY: ranking_entries,
+                    "explanation": explanation,
+                }
+                enriched_ranking = self._enrich_candidate_ranking(
+                    ranking_entries,
+                    candidates,
+                    predicted_identifier,
+                    nil_score,
+                )
+                api_answer_payload = {
+                    self.RANKING_KEY: enriched_ranking,
+                    "explanation": explanation,
+                }
+                candidate_ranking_json = json.dumps(api_answer_payload, ensure_ascii=False)
+                answer_json = json.dumps(answer_payload, ensure_ascii=False)
 
                 # Add column-specific results to the row
-                results_by_row[id_row][f"{column}_llm_answer"] = (
-                    " ".join(response.split()) if response is not None else "None"
-                )
-                results_by_row[id_row][f"{column}{self.prediction_suffix}"] = extracted_identifier
+                results_by_row[id_row][f"{column}_llm_answer"] = answer_json
+                results_by_row[id_row][f"{column}{self.prediction_suffix}"] = predicted_identifier
+                results_by_row[id_row][f"{column}_candidate_ranking"] = candidate_ranking_json
 
         # Convert to list of dictionaries
         results = list(results_by_row.values())
@@ -340,13 +818,17 @@ class LionLinker:
             str: The extracted identifier (e.g., 'Q42', 'apple-234abc', 'Apple') or 'NIL',
                 or 'No Identifier' if no valid match is found.
         """
-        # Look for all matches with optional whitespace after 'ANSWER:'
-        matches = self._compiled_id_pattern.findall(response)
+        if response is None:
+            return "No Identifier"
 
-        if matches:
-            return matches[-1]  # Return the last match found
-
-        return "No Identifier"
+        try:
+            ranking_entries, nil_score, _ = self._parse_llm_json(response)
+            return self._determine_predicted_identifier(ranking_entries, nil_score)
+        except ValueError:
+            matches = self._compiled_id_pattern.findall(response)
+            if matches:
+                return matches[-1]
+            return "No Identifier"
 
     async def estimate_total_rows(self):
         # Get the size of the file in bytes
@@ -400,7 +882,9 @@ class LionLinker:
         otherwise, the first row is used.
 
         Returns:
-            dict: A mapping of mention column names to the generated prompt.
+            dict: A mapping of mention column names to dictionaries containing:
+                  - 'prompt': the generated prompt text
+                  - 'candidates': the candidate list retrieved for that mention
         """
         # Ensure that the table summary has been computed.
         if self.table_summary is None:
@@ -469,7 +953,8 @@ class LionLinker:
                 format_candidates=self.format_candidates,
                 answer_format=self.answer_format,
             )
-            prompts[col] = prompt
+            self._prompt_candidate_cache[col] = candidates
+            prompts[col] = {"prompt": prompt, "candidates": candidates}
 
         return prompts
 
@@ -478,18 +963,58 @@ class LionLinker:
         Sends each prompt in the provided prompt sample to the LLM and returns the responses.
 
         Args:
-            prompt_sample (dict): A dictionary mapping mention column names to prompt texts.
+            prompt_sample (dict): A dictionary mapping mention column names to either:
+                - a prompt string; or
+                - a dictionary containing 'prompt' and 'candidates' keys as returned by
+                  `generate_sample_prompt`.
 
         Returns:
             dict: A dictionary mapping each mention column to a dictionary with keys:
-                  'prompt', 'response', and 'extracted_identifier'.
+                  'prompt', 'response', 'extracted_identifier', 'candidate_ranking',
+                  and 'candidates'.
         """
         results = {}
-        for col, prompt in prompt_sample.items():
+        for col, prompt_entry in prompt_sample.items():
+            if isinstance(prompt_entry, dict):
+                prompt = prompt_entry.get("prompt", "")
+                candidates = prompt_entry.get("candidates")
+            else:
+                prompt = prompt_entry
+                candidates = None
+
+            if candidates is None:
+                candidates = self._prompt_candidate_cache.get(col, [])
+            if candidates is None:
+                candidates = []
+
             response = self.llm_interaction.chat(prompt)
+            try:
+                ranking_entries, nil_score, explanation = self._parse_llm_json(response)
+            except ValueError:
+                logging.warning("Failed to parse LLM response for column '%s'", col)
+                ranking_entries, nil_score, explanation = self._default_nil_payload()
+
+            predicted_identifier = self._determine_predicted_identifier(
+                ranking_entries,
+                nil_score,
+            )
+            enriched_ranking = self._enrich_candidate_ranking(
+                ranking_entries,
+                candidates,
+                predicted_identifier,
+                nil_score,
+            )
+            answer_payload = {
+                self.RANKING_KEY: ranking_entries,
+                "explanation": explanation,
+            }
+            answer_json = json.dumps(answer_payload, ensure_ascii=False)
             results[col] = {
-                "response": response.replace("\n", "").strip(),
-                "extracted_identifier": self.extract_identifier_from_response(response),
+                "prompt": prompt,
+                "response": answer_json,
+                "extracted_identifier": predicted_identifier,
+                "candidate_ranking": enriched_ranking,
+                "candidates": candidates,
             }
         return results
 
@@ -560,3 +1085,4 @@ class LionLinker:
         pbar.close()
 
         logging.info(f"Processing completed. Results are incrementally saved to {self.output_csv}")
+        self._enrich_output_csv()

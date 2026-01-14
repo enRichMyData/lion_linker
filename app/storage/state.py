@@ -319,21 +319,12 @@ class StateStore:
         batch_size = max(1, batch_size)
 
         operations: List[UpdateOne] = []
-        timestamp = datetime.now(tz=timezone.utc)
         for row in rows:
             annotations = [prediction.model_dump(mode="json") for prediction in row.predictions]
-            metadata: Dict[str, Any] = {
-                "jobId": job_id,
-                "updatedAt": timestamp,
-            }
-            if lion_config:
-                metadata["lionConfig"] = lion_config
-            if retriever_config:
-                metadata["retrieverConfig"] = retriever_config
             operations.append(
                 UpdateOne(
                     {"tableId": table_id, "idRow": row.idRow},
-                    {"$set": {"annotations": annotations, "annotationMeta": metadata}},
+                    {"$set": {"annotations": annotations}},
                 )
             )
 
@@ -349,17 +340,18 @@ class StateStore:
         page: int,
         per_page: int,
         row_ids: Optional[List[int]] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
         if page < 1 or per_page < 1:
-            return []
+            return [], None
 
         collected: List[Dict[str, Any]] = []
         query: Dict[str, Any] = {"datasetId": dataset_id, "tableId": table_id}
+        shared_meta: Optional[Dict[str, Any]] = None
 
         if row_ids:
             row_id_list = sorted({int(rid) for rid in row_ids})
             if not row_id_list:
-                return []
+                return [], None
             query["idRow"] = {"$in": row_id_list}
             cursor = self._table_rows.find(query).sort("idRow", ASCENDING)
             docs_all = await cursor.to_list(length=None)
@@ -373,16 +365,17 @@ class StateStore:
             docs = await cursor.to_list(length=per_page)
 
         for doc in docs:
+            if shared_meta is None:
+                shared_meta = doc.get("annotationMeta")
             collected.append(
                 {
                     "idRow": doc["idRow"],
                     "data": doc.get("data", []),
                     "predictions": doc.get("annotations", []),
-                    "annotationMeta": doc.get("annotationMeta"),
                 }
             )
 
-        return collected
+        return collected, shared_meta
 
     async def close(self) -> None:
         self._client.close()
