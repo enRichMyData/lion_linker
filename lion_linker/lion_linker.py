@@ -19,44 +19,40 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 class LionLinker:
     DEFAULT_ANSWER_FORMAT_TEMPLATE = """
-        Reply with a single JSON object in exactly this shape (no extra text):
+        ANSWER FORMAT (IMPORTANT):
+        Return ONLY a JSON object with exactly these top-level keys (no extra text):
         {{
             "{ranking_key}": [
                 {{
-                "id": "<CANDIDATE_ID>",
-                "confidence_label": "<HIGH|MEDIUM|LOW|null>",
-                "confidence_score": <float|null>
+                    "id": "<CANDIDATE_ID>",
+                    "confidence_label": "<HIGH|MEDIUM|LOW|null>",
+                    "confidence_score": <float|null>
                 }}
             ],
             "explanation": "<short reasoning of the final decision>"
         }}
 
-        Instructions:
+        Rules:
         1. Always return the JSON object with both fields "{ranking_key}" and "explanation".
-        2. Return between 1 and {ranking_size} candidates, sorted by descending "confidence_score", except in the NIL case.
+        2. Return between 1 and {ranking_size} candidates, sorted by descending "confidence_score",
+           except in the NIL case.
         3. Each candidate must have the keys "id", "confidence_label", "confidence_score".
-        4. "confidence_score" must lie in [0, 1]. Map it to "confidence_label" as:
-        - HIGH if confidence_score ≥ 0.70
-        - MEDIUM if 0.40 ≤ confidence_score < 0.70
-        - LOW if confidence_score < 0.40
-        5. If none of the provided candidates fits, return:
-        - First entry:
-            {{
-            "id": "NIL",
-            "confidence_label": "LOW",
-            "confidence_score": 0
-            }}
-        - Then append all the original candidates (top5) in the same order as presented in the prompt, each with:
-            "confidence_label": null,
-            "confidence_score": null
-        Use "explanation" to state why NIL was selected.
+        4. Confidence scores and labels:
+           - "confidence_score" must be in [0, 1].
+           - HIGH if confidence_score ≥ 0.70
+           - MEDIUM if 0.40 ≤ confidence_score < 0.70
+           - LOW if confidence_score < 0.40
+        5. If none of the provided candidates fits:
+           - Set {ranking_key}[0] = {{ "id": "NIL", "confidence_label": "LOW", "confidence_score": 0 }}.
+           - Then append the original candidates (up to the first {ranking_size}) in the same order
+             as presented in the prompt, each with "confidence_label": null and "confidence_score": null.
+           - Use "explanation" to state why NIL was selected.
         6. Do not invent candidates. Score only the candidates that were provided in the prompt.
-        7. Keep the output strictly valid JSON with no Markdown and no trailing commas.
+        7. The final output must be valid JSON (no Markdown, no trailing commas).
         8. Very important: the value of "explanation" must not contain the double quote character (").
-            - If you need to mention text that originally contains double quotes (for example: COMPANIA NATIONALA DE CAI FERATE "CFR" - SA), rewrite the inner double quotes as single quotes, like this: COMPANIA NATIONALA DE CAI FERATE 'CFR' - SA.
-            - You can also rewrite small fragments using single quotes instead of double quotes.
-            - Never output the character " inside the explanation string.
-        9. Keep the output strictly valid JSON with no Markdown and no trailing commas.
+           - If you need to mention text that originally contains double quotes, rewrite them as single
+             quotes.
+           - Never output the character " inside the explanation string.
     """.strip()
 
     ALLOWED_RANKING_SIZES = (3, 5)

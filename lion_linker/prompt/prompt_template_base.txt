@@ -1,4 +1,14 @@
-This is an entity linking task. Your goal is to identify which entity in the knowledge base matches the mention in a table cell.
+You perform entity linking over table cell mentions.
+For this task, choose exactly one correct candidate id.
+
+You are given:
+  - The table context around the mention.
+  - The table metadata and summary (if available).
+  - The column name and target entity mention.
+  - The list of candidate entities.
+
+Candidates are given as: <id: ...; name: ...; description: ...; types: ...>
+types is a short category such as film, television film, novel, album, etc.
 
 Context:
 
