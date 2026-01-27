@@ -3,13 +3,13 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Response
+from fastapi import Depends, FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from app.api.routes import router
 from app.core.config import settings
-from app.dependencies import get_store, set_task_queue
+from app.dependencies import get_store, require_api_key, set_task_queue
 from app.services.linker import LinkerRunner
 from app.services.task_queue import TaskQueue
 
@@ -45,7 +45,7 @@ app.add_middleware(
 app.include_router(router)
 
 
-@app.get("/docs/reference", response_class=HTMLResponse)
+@app.get("/docs/reference", response_class=HTMLResponse, dependencies=[Depends(require_api_key)])
 async def custom_docs() -> Response:
     reference_path = Path(__file__).resolve().parent.parent / "docs" / "static" / "reference.html"
     if reference_path.exists():

@@ -1,256 +1,342 @@
-# LionLinker REST API
+# Entity Linking REST API
 
-This document describes the REST endpoints exposed by the LionLinker service. All endpoints return JSON responses and use snake_case field names. LionLinker-specific behaviour is controlled through the payload via `lionConfig` and `retrieverConfig` objects; no implicit defaults are injected from server settings.
-
-## Base URL
-
-```
-http://<host>:9000
-```
+This document describes a standalone HTTP API for an LLM-based Entity Linking (EL) service.
+The service accepts tabular data, links entity mentions per cell, and stores results in MongoDB.
 
 ## Authentication
 
-The reference implementation accepts an optional `token` query parameter on job-related endpoints. If provided during submission, the same value must be supplied when querying status.
+All endpoints require an API key. Provide it via `X-API-Key: <key>` or
+`Authorization: Bearer <key>`.
 
-## Endpoints
+## Endpoint Overview
 
-### 1. Register Tables
+- `GET /health` — liveness check
+- `GET /capabilities` — supported modes, limits, defaults
+- `POST /jobs` — create a job (inline | uri | upload_id); always returns `job_id`
+- `GET /jobs/{job_id}` — job status + progress
+- `GET /jobs/{job_id}/results` — cursor-paged cell-level finals (no candidates)
+- `GET /jobs/{job_id}/cells/{row}/{col}/candidates` — lazy candidates for one cell
+- `POST /jobs/{job_id}:cancel` — cancel a job
 
-```
-POST /dataset
-POST /datasets
-Content-Type: application/json
-```
+Optional:
+- `POST /uploads` — pre-signed upload URL + `upload_id`
+- `GET /jobs/{job_id}/events` — SSE progress/events
+- `GET /jobs/{job_id}/results/download` — signed URL export
+- `GET /jobs/{job_id}/artifacts` — list stored artifacts
 
-Registers one or more tables in the store. `/dataset` is kept for backwards compatibility; `/datasets` is the preferred name. Each element matches the onboarding payload:
+## Stable Identifiers
 
+- `job_id`: opaque string, globally unique per run.
+- `table_id`: optional opaque client-provided identifier (echoed back).
+- `row`: zero-based row index in the submitted table.
+- `col`: zero-based column index in the submitted table.
+- `cell_id`: stable derived identifier (for example `row_id:col`), returned on results.
+
+## Result Models
+
+- Final prediction per cell:
+  - `entity_id` (string; `NIL` allowed)
+  - `label` (optional string)
+  - `score` (float 0..1)
+  - `status` (`linked` | `nil` | `error`)
+- Candidates (per-cell endpoint):
+  - `rank` (int)
+  - `entity_id` (string)
+  - `label` (optional string)
+  - `score` (float 0..1)
+  - `features` (optional map)
+
+## Limits and Errors
+
+Limits are exposed via `GET /capabilities` (for example `max_inline_bytes`, `max_top_k`).
+
+Common errors:
+- `400` invalid input
+- `401` invalid API key
+- `404` job not found
+- `409` job not cancellable (already finished)
+- `413` payload too large
+- `422` invalid schema or format
+- `429` rate limited
+- `503` model/retriever unavailable
+
+## Endpoints with Examples
+
+### `GET /health`
+
+Response:
 ```json
-[
-  {
-    "datasetName": "EMD-BC",
-    "tableName": "SN-BC-1753173071015729",
-    "header": ["Point of Interest", "Place"],
-    "rows": [
-      {"idRow": 1, "data": ["John F. Kennedy Presidential Library and Museum", "Columbia Point"]},
-      {"idRow": 2, "data": ["Petrie Museum of Egyptian Archaeology", "London"]}
-    ],
-    "lionConfig": {
-      "model_name": "gemma2:2b",
-      "chunk_size": 16,
-      "mention_columns": ["Point of Interest"],
-      "table_ctx_size": 2
-    },
-    "retrieverConfig": {
-      "class_path": "lion_linker.retrievers.LamapiClient",
-      "endpoint": "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval",
-      "token": "lamapi_demo_2023",
-      "num_candidates": 5
-    }
+{
+  "ok": true,
+  "status": "healthy",
+  "time": "2025-01-15T10:12:03Z"
+}
+```
+
+### `GET /capabilities`
+
+Response:
+```json
+{
+  "ok": true,
+  "data": {
+    "input_modes": ["inline", "uri", "upload_id"],
+    "supported_formats": ["text/csv", "application/json"],
+    "max_inline_bytes": 1048576,
+    "max_rows_inline": 5000,
+    "max_top_k": 20,
+    "max_link_columns": 50,
+    "supports_sse": true,
+    "supports_exports": true,
+    "default_top_k": 5,
+    "default_timeout_seconds": 900
   }
-]
-```
-
-**Response** – array of objects containing `datasetId`, `tableId`, and metadata.
-
-### 2. Submit Annotation Jobs
-
-#### 2.1 Bulk (legacy)
-
-```
-POST /annotate
-Content-Type: application/json
-```
-
-Enqueue LionLinker runs for one or more tables. The payload matches `POST /datasets`; any tables not yet registered will be upserted automatically.
-
-Optional query parameter:
-
-- `token`: value stored with the job and required when polling status (optional).
-
-**Response** – array of job descriptors.
-
-#### 2.2 Single Table / Subset
-
-```
-POST /datasets/{datasetId}/tables/{tableId}/annotate
-Content-Type: application/json
-```
-
-Submit a job for a single table. Supports row subsets via `rowIds`:
-
-```json
-{
-  "rowIds": [0, 5, 9],
-  "lionConfig": {
-    "model_name": "openai/gpt-5-mini",
-    "model_api_provider": "openrouter",
-    "model_api_key": "sk-or-..."
-  },
-  "retrieverConfig": {
-    "endpoint": "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval",
-    "token": "lamapi_demo_2023"
-  },
-  "token": "optional-job-token"
 }
 ```
 
-**Response** – single job descriptor with `rowIds` echoed back.
+### `POST /jobs` (inline input)
 
-#### 2.3 Update Existing Annotations
-
-```
-PATCH /datasets/{datasetId}/tables/{tableId}/annotations
-Content-Type: application/json
-```
-
-Refresh annotations for specific rows without creating a new table entry. The payload mirrors the single-table annotate request; omit `rowIds` to reprocess the entire table.
-
+Request:
 ```json
 {
-  "rowIds": [1, 3, 5],
-  "lionConfig": { ... },
-  "retrieverConfig": { ... },
-  "token": "optional-job-token"
-}
-```
-
-**Response** – single job descriptor.
-
-### 3. Poll Annotation Status (latest for table)
-
-```
-GET /dataset/{datasetId}/table/{tableId}?page=1&per_page=50[&token=...]
-```
-
-Returns the most recent job for the given table along with prediction rows. Predictions are streamed from MongoDB in pages directly from the stored table rows; if a job predates prediction persistence the API falls back to the legacy JSON file.
-
-**Response**
-
-```json
-{
-  "datasetId": "6177cc032e0d40628b6f00fcfa9d8310",
-  "tableId": "50743956de014184acb49288874f4110",
-  "jobId": "91723dec3eb64dd68a358a057de0bc27",
-  "status": "completed",
-  "page": 1,
-  "perPage": 50,
-  "totalRows": 2,
-  "rows": [
-    {
-      "idRow": 1,
-      "data": ["John F. Kennedy Presidential Library and Museum", "Columbia Point"],
-      "predictions": [
-        {
-          "column": "Point of Interest",
-          "answer": "ANSWER:Q632682",
-          "identifier": "Q632682"
-        }
+  "table_id": "my_table_001",
+  "input": {
+    "mode": "inline",
+    "format": "application/json",
+    "table": {
+      "header": ["Title", "Director", "Year"],
+      "rows": [
+        {"row_id": "r1", "cells": ["Inception", "Christopher Nolan", "2010"]},
+        {"row_id": "r2", "cells": ["Alien", "Ridley Scott", "1979"]}
       ]
     }
-  ],
-  "message": "Linking completed",
-  "updatedAt": "2025-09-24T15:05:22.101000",
-  "predictionBatches": 1,
-  "predictionBatchSize": 200,
-  "rowIds": [0, 5, 9]
+  },
+  "link_columns": ["Title"],
+  "row_range": {"start": 0, "limit": 1000},
+  "top_k": 5,
+  "execution": "async"
 }
 ```
 
-### 4. Fetch Annotation Metadata by ID
+If you need to pass a per-request model API key (for example for OpenRouter), supply
+`config.lion.model_api_key` in the job payload or send it via the `X-LLM-API-Key` header.
+The API stores it ephemerally and does not persist it in the job record.
 
-```
-GET /annotate/{jobId}[?token=...]
-```
-
-Returns job state without streaming rows. Helpful for checking configuration echoes (`lionConfig`, `retrieverConfig`) and understanding how many prediction batches are stored.
-
-**Response**
-
+Response (always returns a `job_id`):
 ```json
 {
-  "jobId": "91723dec3eb64dd68a358a057de0bc27",
-  "datasetId": "6177cc032e0d40628b6f00fcfa9d8310",
-  "tableId": "50743956de014184acb49288874f4110",
-  "status": "completed",
-  "totalRows": 2,
-  "processedRows": 2,
-  "message": "Linking completed",
-  "updatedAt": "2025-09-24T15:05:22.101000",
-  "lionConfig": {
-    "model_name": "gemma2:2b",
-    "chunk_size": 16,
-    "mention_columns": ["Point of Interest"],
-    "table_ctx_size": 2
-  },
-  "retrieverConfig": {
-    "class_path": "lion_linker.retrievers.LamapiClient",
-    "endpoint": "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval",
-    "num_candidates": 5,
-    "token": "lamapi_demo_2023"
-  },
-  "predictionBatches": 1,
-  "predictionBatchSize": 200,
-  "rowIds": [0, 5, 9]
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "table_id": "my_table_001",
+  "status": "queued",
+  "created_at": "2025-01-15T10:12:08Z",
+  "limits": {
+    "top_k": 5
+  }
 }
 ```
 
-## Request Configuration Reference
+### `POST /jobs` (large input via URI)
 
-### `lionConfig`
+Request:
+```json
+{
+  "table_id": "big_table_2025_01",
+  "input": {
+    "mode": "uri",
+    "format": "text/csv",
+    "uri": "s3://bucket/path/table.csv"
+  },
+  "link_columns": [0],
+  "row_range": {"start": 0, "limit": 2000000},
+  "top_k": 10,
+  "execution": "async"
+}
+```
 
-All keys use snake_case and map directly to `LionLinker` parameters:
+### `POST /uploads` (optional pre-signed upload)
 
-| Key | Type | Description |
-| --- | --- | --- |
-| `model_name` | string | Model identifier (default `gemma2:2b`). |
-| `chunk_size` | integer | Rows per batch; must be ≥ 1. |
-| `mention_columns` | array[string] | Columns used to extract mentions. |
-| `table_ctx_size` | integer | Context window around each row. |
-| `prompt_template` | string | Template name or path. |
-| `prompt_file_path` | string | Explicit path to a prompt file. |
-| `few_shot_examples_file_path` | string | Path to few-shot examples. |
-| `format_candidates` | boolean | Whether to format candidates (defaults to true). |
-| `compact_candidates` | boolean | Whether to compact candidate entries (defaults to true). |
-| `model_api_provider` | string | One of `ollama`, `openrouter`, `huggingface`, `cerebras`. |
-| `ollama_host` | string | Base URL for Ollama (default `http://ollama:11434`). |
-| `model_api_key` | string | API key, required for OpenRouter/Cerebras unless env vars are set. |
-| `gt_columns` | array[string] | Columns to exclude from processing. |
-| `answer_format` | string | Custom answer format. |
-| `prediction_batch_size` | integer | Overrides default Mongo batch size (defaults to env `PREDICTION_BATCH_ROWS`). |
+Request:
+```json
+{
+  "content_type": "text/csv",
+  "content_length": 52428800
+}
+```
 
-### `retrieverConfig`
+Response:
+```json
+{
+  "ok": true,
+  "upload_id": "up_01J2H2B5X7FQ",
+  "upload_url": "/uploads/up_01J2H2B5X7FQ",
+  "expires_at": "2025-01-15T10:27:08Z"
+}
+```
 
-Keys may be provided in either `snake_case` or camelCase; the API normalises
-them to snake_case before processing.
+### `POST /jobs` (use upload_id)
 
-| Key | Type | Description |
-| --- | --- | --- |
-| `class_path` | string | Fully qualified retriever class (defaults to `lion_linker.retrievers.LamapiClient`). |
-| `endpoint` | string | Retriever endpoint URL. |
-| `token` | string | Authentication token for the retriever. |
-| `num_candidates` | integer | Candidate count per mention. |
-| `kg` | string | Knowledge graph name (defaults to table metadata). |
-| `cache` | boolean | Enable/disable retriever-side caching. |
-| `max_retries` | integer | Optional retry count (if supported by the retriever). |
-| `backoff_factor` | number | Optional backoff factor (if supported by the retriever). |
-| `retrieverConfig` | object | Optional per-table retriever overrides. Keys may be provided in either `snake_case` or camelCase; the API normalises them to snake_case. |
+Request:
+```json
+{
+  "table_id": "big_table_2025_01",
+  "input": {
+    "mode": "upload_id",
+    "format": "text/csv",
+    "upload_id": "up_01J2H2B5X7FQ"
+  },
+  "link_columns": ["Title"],
+  "top_k": 5,
+  "execution": "async"
+}
+```
 
-Any additional fields in `retrieverConfig` are forwarded to the retriever constructor.
+### `GET /jobs/{job_id}`
 
-## Response Codes
+Response:
+```json
+{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "table_id": "my_table_001",
+  "status": "running",
+  "progress": {
+    "rows_total": 2000000,
+    "rows_processed": 325000,
+    "cells_total": 2000000,
+    "cells_processed": 325000
+  },
+  "started_at": "2025-01-15T10:12:12Z",
+  "updated_at": "2025-01-15T10:20:43Z"
+}
+```
 
-| Status | Meaning |
-| ------ | ------- |
-| `200 OK` | Request processed successfully. |
-| `400 Bad Request` | Malformed payload or invalid parameters. |
-| `403 Forbidden` | Token mismatch when polling job status/info. |
-| `404 Not Found` | Dataset, table, or job not found. |
-| `500 Internal Server Error` | Unexpected failure during processing. |
+### `GET /jobs/{job_id}/results` (cursor-based)
 
-## Notes
+Response:
+```json
+{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "cursor": "eyJqIjoiam9iXzAxSjJIMkE5SzlNMCIsInIiOjEwMDAsImMiOjB9",
+  "next_cursor": "eyJqIjoiam9iXzAxSjJIMkE5SzlNMCIsInIiOjIwMDAsImMiOjB9",
+  "results": [
+    {
+      "row": 0,
+      "col": 0,
+      "cell_id": "r1:0",
+      "mention": "Inception",
+      "final": {
+        "entity_id": "Q25188",
+        "label": "Inception",
+        "score": 0.97,
+        "status": "linked"
+      }
+    }
+  ]
+}
+```
 
-- Tables are stored row-by-row in MongoDB (`lion_table_rows`). Aggregations should use `datasetId` and `tableId` as keys.
-- Predictions are persisted directly on each table row. Use `predictionBatches` and `predictionBatchSize` in job responses to understand the chunking used when the annotations were produced.
-- The service still emits legacy CSV/JSON artifacts under `/app/data/api_runs/...` for compatibility, but MongoDB is the primary source of truth for processed rows.
+### `GET /jobs/{job_id}/cells/{row}/{col}/candidates`
 
-For interactive exploration, open the FastAPI-generated docs at `http://<host>:9000/docs` or the ReDoc view at `http://<host>:9000/redoc`.
+Response:
+```json
+{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "row": 0,
+  "col": 0,
+  "cell_id": "r1:0",
+  "mention": "Inception",
+  "candidates": [
+    {"rank": 1, "entity_id": "Q25188", "label": "Inception", "score": 0.97},
+    {"rank": 2, "entity_id": "Q3797611", "label": "Inception (soundtrack)", "score": 0.21}
+  ]
+}
+```
+
+### `POST /jobs/{job_id}:cancel`
+
+Response:
+```json
+{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "status": "cancelling"
+}
+```
+
+### `GET /jobs/{job_id}/events` (optional SSE)
+
+```
+event: progress
+data: {"job_id":"job_01J2H2A9K9M0","rows_processed":400000,"cells_processed":400000}
+```
+
+### `GET /jobs/{job_id}/results/download` (optional export)
+
+Response:
+```json
+{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "download_url": "/jobs/job_01J2H2A9K9M0/artifacts/results.csv",
+  "expires_at": "2025-01-15T11:12:08Z"
+}
+```
+
+### `GET /jobs/{job_id}/artifacts` (optional)
+
+Response:
+```json
+{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "artifacts": [
+    {"name": "results.csv", "type": "export", "size_bytes": 1048576}
+  ]
+}
+```
+
+## MongoDB Storage Guidance (High Level)
+
+Collections:
+- `jobs`: job metadata, config, status, timestamps
+- `job_events`: progress/events (SSE source), append-only
+- `cell_predictions`: final decisions per cell
+- `cell_candidates`: per-cell candidates (or embedded for small jobs)
+- `uploads`: upload handles, URIs, expiry
+
+Chunking strategy:
+- Store predictions in row-based chunks (for example 5k-20k rows per chunk) to avoid oversized documents.
+- Store candidates separately keyed by `(job_id, row, col)` to keep `/results` lightweight.
+- Stream writes and batch inserts for massive tables to avoid write amplification.
+
+Index recommendations:
+- `cell_predictions`: compound `(job_id, row, col)`
+- `cell_predictions`: `(job_id, status, score)`
+- `cell_predictions`: `(job_id, row)` for pagination ranges
+- `cell_candidates`: `(job_id, row, col)`
+- `jobs`: `(status, updated_at)` and `(table_id)`
+
+## OpenAPI-like Outline
+
+- `GET /health`
+  - Returns liveness state.
+- `GET /capabilities`
+  - Returns limits, supported input modes, defaults.
+- `POST /jobs`
+  - Creates a job. Key fields: `table_id`, `input`, `link_columns`, `row_range`, `top_k`, `execution`.
+- `GET /jobs/{job_id}`
+  - Returns status and progress counters.
+- `GET /jobs/{job_id}/results`
+  - Returns cursor-paged final decisions (no candidate lists).
+- `GET /jobs/{job_id}/cells/{row}/{col}/candidates`
+  - Returns candidates for a specific cell.
+- `POST /jobs/{job_id}:cancel`
+  - Cancels a job.
+- Optional:
+  - `POST /uploads`
+  - `GET /jobs/{job_id}/events`
+  - `GET /jobs/{job_id}/results/download`
+  - `GET /jobs/{job_id}/artifacts`

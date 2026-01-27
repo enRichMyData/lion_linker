@@ -105,8 +105,9 @@ model_name = "gemma2:2b"  # Use the correct model name
 output_csv = "output_test.csv"
 chunk_size = 16  # How many rows to process
 num_candidates = 20  # Maximum number of candidates from the Retriever per mention
-format_candidates = True  # Format candidates as in TableLlama prompt
-table_ctx_size = 1
+format_candidates = False  # Use TableLlama-style formatting instead of JSON
+compact_candidates = False  # Use compact non-JSON list when format_candidates is False
+max_parallel_prompts = 1  # Maximum number of prompt batches to send concurrently
 
 # Load API parameters from environment variables
 retriever_endpoint = os.getenv("RETRIEVER_ENDPOINT")
@@ -114,7 +115,6 @@ retriever_token = os.getenv("RETRIEVER_TOKEN")
 
 # Additional parameters as per the latest LionLinker version
 mention_columns = ["title"]  # Columns to link entities from
-compact_candidates = True  # Whether to compact candidates list
 model_api_provider = "ollama"  # e.g. "ollama", "openrouter", "huggingface", or "cerebras"
 ollama_host = "http://localhost:11434"  # Default Ollama host if not specified it will use the Default Ollama host anyway
 model_api_key = None  # Optional model API key if required
@@ -137,8 +137,8 @@ lion_linker = LionLinker(
     ollama_host=ollama_host,
     model_api_key=model_api_key,
     gt_columns=gt_columns,
-    table_ctx_size=table_ctx_size,
     format_candidates=format_candidates,
+    max_parallel_prompts=max_parallel_prompts,
 )
 
 # Start the Ollama server as a background process
@@ -178,7 +178,6 @@ python -m lion_linker.cli \
   --lion.model_name "gemma2:2b" \
   --lion.mention_columns '[title]' \
   --lion.ollama_host "http://localhost:11434" \
-  --lion.format_candidates True \
   --retriever.class_path lion_linker.retrievers.LamapiClient \
   --retriever.endpoint "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval" \
   --retriever.token "lamapi_demo_2023" \
@@ -195,7 +194,6 @@ python -m lion_linker.cli \
   --lion.model_name "gemma2:2b" \
   --lion.mention_columns '[title]' \
   --lion.ollama_host "http://localhost:11434" \
-  --lion.format_candidates True \
   --retriever.class_path lion_linker.retrievers.WikidataClient \
   --retriever.endpoint "https://query.wikidata.org/sparql" \
   --retriever.language "en" \
@@ -210,7 +208,6 @@ python -m lion_linker.cli \
   --lion.model_name "gemma2:2b" \
   --lion.mention_columns '[title]' \
   --lion.ollama_host "http://localhost:11434" \
-  --lion.format_candidates True \
   --retriever.class_path lion_linker.retrievers.OpenRefineClient \
   --retriever.endpoint "https://wikidata.reconci.link/api" \
   --retriever.num_candidates 5
@@ -227,10 +224,13 @@ python -m lion_linker.cli \
 - `--chunk_size`: Defines how many rows to process at once.
 - `--mention_columns`: Columns in the CSV that contain entity mentions.
 - `--num_candidates`: Maximum number of candidates returned by the API per mention.
+- `--format_candidates`: Use TableLlama/legacy bracket formatting instead of JSON candidates.
+- `--compact_candidates`: Use the compact list format (ID | TYPE | DESCRIPTION) when JSON is disabled.
+- `--max_parallel_prompts`: Maximum number of prompt batches to send concurrently.
 
 ## REST API server
 
-The repository now includes a FastAPI application (located in `app/`) that exposes a small REST interface for working with LionLinker jobs. The service persists all datasets, tables, and job metadata in MongoDB, so you get durability and a multi-process friendly queue without managing local JSON files.
+The repository includes a FastAPI application (located in `app/`) that exposes a small REST interface for running LionLinker jobs as queued compute tasks. MongoDB is the job store and the queue, and prediction rows are written to a separate predictions collection.
 
 ### Install dependencies
 
@@ -243,11 +243,17 @@ pip install -e .[app]
 The API shares the same environment variables as the Python/CLI interfaces. The most relevant flags are:
 
 - `RETRIEVER_ENDPOINT`, `RETRIEVER_TOKEN`: LamAPI (or compatible) endpoint configuration.
-- LionLinker-specific settings (model, prompts, mention columns, etc.) should be supplied per request via `lionConfig` / `retrieverConfig` in the payload.
+- LionLinker-specific settings (model, prompts, mention columns, etc.) should be supplied per request via `config.lion` / `config.retriever` in the job payload.
+- `LION_API_KEY`: required API key; send it via `X-API-Key` or `Authorization: Bearer`.
+- `LION_JOB_SECRET_TTL_SECONDS`: optional TTL for per-job model API keys (defaults to 24h).
 - `LION_DRY_RUN=true`: force offline/dry runs that emit `ANSWER:NIL` predictions without contacting retrievers or models (handy for local testing).
 - `MONGO_URI` (defaults to `mongodb://localhost:27017`), `MONGO_DB`, and `MONGO_COLLECTION_PREFIX`: connection settings for the MongoDB instance backing the job store.
 - `WORKSPACE_PATH` (defaults to `data/api_runs`): where intermediate CSV/JSON artifacts are written inside the container.
-- `PREDICTION_BATCH_ROWS`: controls the chunk size used when persisting prediction metadata and reporting `predictionBatches`.
+- `PREDICTION_BATCH_ROWS`: unused in the queue API (left for compatibility with older data formats).
+
+Per-job model keys can be supplied as `config.lion.model_api_key` in the job payload or via the
+`X-LLM-API-Key` header. The API stores them in a short-lived secrets collection and does not
+persist them in the job config.
 
 ### Run
 
@@ -270,82 +276,72 @@ The compose stack exposes the API on `http://localhost:9000`, MongoDB on `mongod
 
 ### Endpoints
 
-- `POST /dataset` – registers dataset/table payloads (you can send multiple at once). Returns dataset and table identifiers that can be reused later.
-- `POST /annotate` – accepts the same payload as `/dataset` and enqueues a LionLinker job for each table. An optional `token` query parameter is stored with the job and checked when polling.
-- `GET /dataset/{dataset_id}/table/{table_id}` – checks the most recent job for that table. Supports pagination via `page`/`per_page` and includes prediction results once the job completes.
-- `GET /annotate/{job_id}` – fetches the state of a specific job (mirrors the information returned when polling via dataset/table).
-  - Completed jobs now stream predictions directly from table rows stored in MongoDB; the API falls back to the legacy JSON files if a job predates the Mongo-backed persistence.
+- `GET /health` – liveness check.
+- `GET /capabilities` – supported modes, limits, defaults.
+- `POST /jobs` – create a job and return `job_id`.
+- `GET /jobs/{job_id}` – job status + progress.
+- `GET /jobs/{job_id}/results` – cursor-paged final decisions (no candidates).
+- `GET /jobs/{job_id}/cells/{row}/{col}/candidates` – candidates for one cell.
+- `POST /jobs/{job_id}:cancel` – cancel a queued job.
 
-You can override LionLinker settings per request by attaching optional `lionConfig` and `retrieverConfig` objects to each table payload. For example:
+### Job request (inline example)
 
 ```json
 {
-  "datasetName": "EMD-BC",
-  "tableName": "SN-BC-1753173071015729",
-  "header": ["Point of Interest", "Place"],
-  "rows": [
-    {"idRow": 1, "data": ["John F. Kennedy Presidential Library and Museum", "Columbia Point"]},
-    {"idRow": 2, "data": ["Petrie Museum of Egyptian Archaeology", "London"]}
-  ],
-  "lionConfig": {
-    "chunk_size": 16,
-    "mention_columns": ["Point of Interest"],
-    "table_ctx_size": 2,
-    "model_name": "gemma2:2b"
+  "table_id": "my_table_001",
+  "input": {
+    "mode": "inline",
+    "format": "application/json",
+    "table": {
+      "header": ["Point of Interest", "Place"],
+      "rows": [
+        {"row_id": "r1", "cells": ["John F. Kennedy Presidential Library and Museum", "Columbia Point"]},
+        {"row_id": "r2", "cells": ["Petrie Museum of Egyptian Archaeology", "London"]}
+      ]
+    }
   },
-  "retrieverConfig": {
-    "num_candidates": 5,
-    "endpoint": "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval",
-    "token": "lamapi_demo_2023"
-  }
+  "link_columns": ["Point of Interest"],
+  "top_k": 5,
+  "execution": "async"
 }
 ```
 
-The overrides are stored with the job and surfaced via `GET /annotate/{job_id}`, so you can confirm which parameters were used.
-
-Example request bodies (matching the payloads from the CLI):
-
-```json
-[
-  {
-    "datasetName": "EMD-BC",
-    "tableName": "SN-BC-1753173071015729",
-    "header": ["Point of Interest", "Place"],
-    "rows": [
-      {"idRow": 1, "data": ["John F. Kennedy Presidential Library and Museum", "Columbia Point"]}
-    ],
-    "retrieverConfig": {
-      "kg": "wikidata"
-    }
-  }
-]
-```
-
-Send this to `/annotate` to start processing. Poll `/dataset/{datasetId}/table/{tableId}` until the job reports `status: completed`.
-
-### Example: annotate the demo film table with OpenRouter
-
-The repository ships with `examples/send_film_annotation.py`, a ready-to-run helper that
-reads `data/film.csv`, posts it to the API, and prints the annotated rows while using
-OpenRouter as the LLM provider.
+### Example curl flow
 
 ```bash
-export OPENAI_API_KEY="sk-or-..."
-python examples/send_film_annotation.py
+curl -s -X POST "http://localhost:9000/jobs" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${LION_API_KEY}" \
+  -d '{
+    "table_id": "demo_table",
+    "input": {
+      "mode": "inline",
+      "format": "application/json",
+      "table": {
+        "header": ["Title", "Place"],
+        "rows": [
+          {"row_id": "r1", "cells": ["The Matrix", "USA"]},
+          {"row_id": "r2", "cells": ["Spirited Away", "Japan"]}
+        ]
+      }
+    },
+    "link_columns": ["Title"],
+    "top_k": 5,
+    "execution": "async"
+  }'
+
+curl -s "http://localhost:9000/jobs/<job_id>" \
+  -H "X-API-Key: ${LION_API_KEY}"
+
+curl -s "http://localhost:9000/jobs/<job_id>/results" \
+  -H "X-API-Key: ${LION_API_KEY}"
 ```
 
-Optional environment variables:
+### Migration notes
 
-- `LION_LINKER_API_URL` (defaults to `http://localhost:9000`)
-- `OPENROUTER_MODEL_NAME` (defaults to `anthropic/claude-3-haiku`)
-- `ANNOTATION_TOKEN` to include a token query parameter
-- `RETRIEVER_CONFIG_JSON` to provide a full JSON retriever configuration
-- or populate individual fields such as `RETRIEVER_CLASS_PATH`, `RETRIEVER_ENDPOINT`,
-  `RETRIEVER_TOKEN`, `RETRIEVER_NUM_CANDIDATES`, `RETRIEVER_CACHE`, and
-  `RETRIEVER_EXTRA_JSON` for additional key/value pairs
-
-The script depends on `requests`; install it with your preferred package manager (for
-example `uv add requests` or `pip install requests`) if it is not already available.
+- The queue API uses `{prefix}_jobs` and `{prefix}_predictions` (or `jobs`/`predictions` if the prefix is empty).
+- Legacy `lion_*` dataset/table collections are no longer used by the API.
+- Old jobs with statuses like `pending`/`completed` will not be claimed by the new worker; archive or delete them if needed.
 
 ## Running Tests
 

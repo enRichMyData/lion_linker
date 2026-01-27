@@ -6,11 +6,11 @@ from typing import Any, Dict, Optional
 DEFAULT_MODEL_NAME = "gpt-oss:20b"
 DEFAULT_MODEL_PROVIDER = "ollama"
 DEFAULT_CHUNK_SIZE = 64
-DEFAULT_TABLE_CTX_SIZE = 1
 DEFAULT_OLLAMA_HOST: Optional[str] = os.getenv("OLLAMA_HOST", "http://ollama:11434")
 DEFAULT_OLLAMA_API_KEY: Optional[str] = os.getenv("OLLAMA_API_KEY")
-DEFAULT_FORMAT_CANDIDATES = True
-DEFAULT_COMPACT_CANDIDATES = True
+DEFAULT_FORMAT_CANDIDATES = False
+DEFAULT_COMPACT_CANDIDATES = False
+DEFAULT_MAX_PARALLEL_PROMPTS = 1
 DEFAULT_RETRIEVER_NUM_CANDIDATES = 10
 DEFAULT_RETRIEVER_CACHE = False
 DEFAULT_RETRIEVER_MAX_RETRIES = 3
@@ -23,9 +23,9 @@ def default_lion_config() -> Dict[str, Any]:
         "model_name": DEFAULT_MODEL_NAME,
         "model_api_provider": DEFAULT_MODEL_PROVIDER,
         "chunk_size": DEFAULT_CHUNK_SIZE,
-        "table_ctx_size": DEFAULT_TABLE_CTX_SIZE,
         "format_candidates": DEFAULT_FORMAT_CANDIDATES,
         "compact_candidates": DEFAULT_COMPACT_CANDIDATES,
+        "max_parallel_prompts": DEFAULT_MAX_PARALLEL_PROMPTS,
     }
     if DEFAULT_OLLAMA_HOST is not None:
         config["ollama_host"] = DEFAULT_OLLAMA_HOST

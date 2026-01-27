@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     mongo_collection_prefix: str = Field(
         default="lion", validation_alias="MONGO_COLLECTION_PREFIX"
     )
+    api_key: Optional[str] = Field(default=None, validation_alias="LION_API_KEY")
+    job_secret_ttl_seconds: int = Field(
+        default=86400, ge=60, validation_alias="LION_JOB_SECRET_TTL_SECONDS"
+    )
 
     queue_workers: int = Field(default=1, ge=1, validation_alias="LION_QUEUE_WORKERS")
     queue_poll_interval_seconds: float = Field(

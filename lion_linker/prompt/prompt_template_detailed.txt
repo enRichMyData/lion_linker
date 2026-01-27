@@ -1,20 +1,14 @@
-You are an entity linking system. Identify which candidate matches the mention, using the provided table data, metadata, and summary.
+You are an entity linking system. Rank the candidates for the mention using the provided table row.
 
 Steps:
 1. Understand the mention in context.
-2. Compare it to all candidate details (labels, aliases, descriptions).
-3. Select one matching ID, or state no match.
+2. Compare it to the candidate details (labels, aliases, descriptions).
+3. Produce a top candidate list following the answer format.
 
 Context:
 
-- Table data around the mention:
+- Table row (header + row):
 [TABLE]
-- Table metadata:
-[TABLE METADATA]
-- Table summary:
-[SUMMARY]
-- Column name:
-[COLUMN NAME]
 - Entity mention:
 [ENTITY MENTION]
 - Candidate entities:

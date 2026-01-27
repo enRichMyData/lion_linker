@@ -1,391 +1,284 @@
 from __future__ import annotations
 
-import asyncio
-import math
 import uuid
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-import pandas as pd
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ASCENDING, DESCENDING, UpdateOne
+from pymongo import ASCENDING, ReturnDocument
 
 from app.core.config import Settings
-from app.core.linker_defaults import default_lion_config, default_retriever_config
-from app.models.dataset import DatasetPayload, DatasetResponse, DatasetTableRecord, TableRowRecord
-from app.models.jobs import JobEnqueueResponse, JobRecord, JobStatus, ResultRow
+from app.models.queue import (
+    JobCreateRequest,
+    JobRecord,
+    JobStatus,
+    JobTable,
+    PredictionRecord,
+    PredictionResponse,
+    PromptResponse,
+)
+from app.models.api import JobCreateRequest as JobCreateRequestApi
 
 
-def _slice_results(
-    rows: List[Dict[str, object]], page: int, per_page: int
-) -> Tuple[List[Dict[str, object]], int]:
-    if per_page <= 0:
-        raise ValueError("per_page must be positive")
-    total = len(rows)
-    start = (page - 1) * per_page
-    end = start + per_page
-    return rows[start:end], total
-
-
-def _dataframe_from_payload(table: DatasetTableRecord) -> pd.DataFrame:
-    rows = [row.model_dump(by_alias=True) for row in table.rows]
-    df = pd.DataFrame([row["data"] for row in rows], columns=table.header)
-    df.insert(0, "id_row", [row["idRow"] for row in rows])
-    return df
+def _collection_name(prefix: str, name: str) -> str:
+    prefix = (prefix or "").strip()
+    return f"{prefix}_{name}" if prefix else name
 
 
 class StateStore:
-    """MongoDB-backed store for datasets, tables, and jobs."""
+    """MongoDB-backed store for job queue state and predictions."""
 
     def __init__(self, settings: Settings):
         uri = settings.mongo_uri or "mongodb://localhost:27017"
         self._client = AsyncIOMotorClient(uri)
         self._db = self._client[settings.mongo_db]
-        prefix = settings.mongo_collection_prefix or "lion"
-        self._datasets = self._db[f"{prefix}_datasets"]
-        self._tables = self._db[f"{prefix}_tables"]
-        self._table_rows = self._db[f"{prefix}_table_rows"]
-        self._jobs = self._db[f"{prefix}_jobs"]
-        self._lock = asyncio.Lock()
-        self._prediction_batch_rows = settings.prediction_batch_rows
+        self._settings = settings
+        prefix = settings.mongo_collection_prefix or ""
+        self._jobs = self._db[_collection_name(prefix, "jobs")]
+        self._predictions = self._db[_collection_name(prefix, "predictions")]
+        self._prompts = self._db[_collection_name(prefix, "prompts")]
+        self._uploads = self._db[_collection_name(prefix, "uploads")]
+        self._secrets = self._db[_collection_name(prefix, "secrets")]
 
     async def ensure_indexes(self) -> None:
-        dataset_indexes = await self._datasets.index_information()
-        if "dataset_name_lower_1" in dataset_indexes and dataset_indexes[
-            "dataset_name_lower_1"
-        ].get("unique"):
-            await self._datasets.drop_index("dataset_name_lower_1")
-        await self._datasets.create_index("dataset_name_lower")
-
-        table_indexes = await self._tables.index_information()
-        table_index_name = "dataset_id_1_table_name_lower_1"
-        if table_index_name in table_indexes and table_indexes[table_index_name].get("unique"):
-            await self._tables.drop_index(table_index_name)
-        await self._tables.create_index(
-            [("dataset_id", ASCENDING), ("table_name_lower", ASCENDING)]
+        await self._jobs.create_index("job_id", unique=True, sparse=True)
+        await self._jobs.create_index("status")
+        await self._jobs.create_index("created_at")
+        await self._predictions.create_index("job_id")
+        await self._predictions.create_index([("job_id", ASCENDING), ("row_id", ASCENDING)])
+        await self._predictions.create_index([("job_id", ASCENDING), ("col_id", ASCENDING)])
+        await self._predictions.create_index([("job_id", ASCENDING), ("seq", ASCENDING)])
+        await self._predictions.create_index(
+            [("job_id", ASCENDING), ("row_id", ASCENDING), ("col_id", ASCENDING)]
         )
-        await self._jobs.create_index("tableId")
-        await self._jobs.create_index("createdAt")
-        await self._table_rows.create_index(
-            [("tableId", ASCENDING), ("idRow", ASCENDING)], unique=True
+        await self._predictions.create_index(
+            [("job_id", ASCENDING), ("status", ASCENDING), ("score", ASCENDING)]
         )
-        await self._table_rows.create_index("datasetId")
+        await self._prompts.create_index("job_id")
+        await self._prompts.create_index([("job_id", ASCENDING), ("seq", ASCENDING)])
+        await self._prompts.create_index("created_at")
+        await self._uploads.create_index("upload_id", unique=True, sparse=True)
+        await self._uploads.create_index("created_at")
+        await self._secrets.create_index("job_id", unique=True, sparse=True)
+        await self._secrets.create_index("expires_at", expireAfterSeconds=0)
 
-    async def upsert_dataset(self, payload: DatasetPayload) -> DatasetResponse:
-        async with self._lock:
-            now = datetime.now(tz=timezone.utc)
-
-            dataset_id = uuid.uuid4().hex
-            table_id = uuid.uuid4().hex
-
-            await self._datasets.insert_one(
-                {
-                    "_id": dataset_id,
-                    "dataset_id": dataset_id,
-                    "dataset_name": payload.dataset_name,
-                    "dataset_name_lower": payload.dataset_name.lower(),
-                    "created_at": now,
-                    "updated_at": now,
-                }
-            )
-
-            row_documents = [
-                {
-                    "_id": f"{table_id}:{row.id_row}",
-                    "datasetId": dataset_id,
-                    "tableId": table_id,
-                    "idRow": row.id_row,
-                    "data": row.data,
-                }
-                for row in payload.rows
-            ]
-            if row_documents:
-                await self._table_rows.insert_many(row_documents)
-
-            metadata = dict(payload.metadata or {})
-            lion_config_doc = default_lion_config()
-            if payload.lion_config:
-                lion_config_doc.update(payload.lion_config)
-            retriever_kg = None
-            if payload.retriever_config:
-                retriever_kg = payload.retriever_config.get("kg")
-            retriever_config_doc = default_retriever_config(retriever_kg)
-            if payload.retriever_config:
-                retriever_config_doc.update(payload.retriever_config)
-            metadata["lion_config"] = lion_config_doc
-            metadata["retriever_config"] = retriever_config_doc
-
-            record_doc = {
-                "_id": table_id,
-                "dataset_id": dataset_id,
-                "dataset_name": payload.dataset_name,
-                "dataset_name_lower": payload.dataset_name.lower(),
-                "table_id": table_id,
-                "table_name": payload.table_name,
-                "table_name_lower": payload.table_name.lower(),
-                "header": payload.header,
-                "metadata": metadata,
-                "created_at": now,
-                "updated_at": now,
-            }
-
-            await self._tables.insert_one(record_doc)
-
-            return DatasetResponse(
-                datasetId=dataset_id,
-                tableId=table_id,
-                datasetName=payload.dataset_name,
-                tableName=payload.table_name,
-                header=payload.header,
-                rowCount=len(payload.rows),
-                createdAt=now,
-                updatedAt=now,
-            )
-
-    async def get_table(self, dataset_id: str, table_id: str) -> DatasetTableRecord:
-        doc = await self._tables.find_one({"_id": table_id, "dataset_id": dataset_id})
-        if not doc:
-            raise KeyError(f"Table not found: dataset={dataset_id}, table={table_id}")
-        rows_cursor = self._table_rows.find({"tableId": table_id}).sort("idRow", ASCENDING)
-        rows: List[TableRowRecord] = []
-        async for row_doc in rows_cursor:
-            rows.append(
-                TableRowRecord.model_validate(
-                    {
-                        "idRow": row_doc["idRow"],
-                        "data": row_doc.get("data", []),
-                        "annotations": row_doc.get("annotations", []),
-                    }
-                )
-            )
-        payload = doc.copy()
-        payload.pop("_id", None)
-        payload["rows"] = rows
-        self._attach_configs(payload)
-        return DatasetTableRecord.model_validate(payload)
-
-    async def get_table_by_name(
-        self, dataset_name: str, table_name: str
-    ) -> Optional[DatasetTableRecord]:
-        doc = await self._tables.find_one(
-            {
-                "dataset_name_lower": dataset_name.lower(),
-                "table_name_lower": table_name.lower(),
-            },
-            sort=[("created_at", DESCENDING)],
-        )
-        if not doc:
-            return None
-        rows_cursor = self._table_rows.find({"tableId": doc["table_id"]}).sort("idRow", ASCENDING)
-        rows: List[TableRowRecord] = []
-        async for row_doc in rows_cursor:
-            rows.append(
-                TableRowRecord.model_validate(
-                    {
-                        "idRow": row_doc["idRow"],
-                        "data": row_doc.get("data", []),
-                        "annotations": row_doc.get("annotations", []),
-                    }
-                )
-            )
-        payload = doc.copy()
-        payload.pop("_id", None)
-        payload["rows"] = rows
-        self._attach_configs(payload)
-        return DatasetTableRecord.model_validate(payload)
-
-    @staticmethod
-    def _attach_configs(payload: Dict[str, Any]) -> None:
-        metadata = payload.get("metadata") or {}
-        if not isinstance(metadata, dict):
-            metadata = {}
-        payload["lion_config"] = metadata.get("lion_config")
-        payload["retriever_config"] = metadata.get("retriever_config")
-
-    async def create_job(
-        self,
-        table: DatasetTableRecord,
-        token: Optional[str] = None,
-        lion_config: Optional[Dict[str, Any]] = None,
-        retriever_config: Optional[Dict[str, Any]] = None,
-        row_ids: Optional[List[int]] = None,
-    ) -> JobEnqueueResponse:
+    async def create_job(self, payload: JobCreateRequest) -> JobRecord:
         now = datetime.now(tz=timezone.utc)
         job_id = uuid.uuid4().hex
-
-        base_lion_config: Dict[str, Any] = {}
-        if table.lion_config:
-            base_lion_config.update(table.lion_config)
-        if lion_config:
-            base_lion_config.update(lion_config)
-
-        base_retriever_config: Dict[str, Any] = {}
-        if table.retriever_config:
-            base_retriever_config.update(table.retriever_config)
-        if retriever_config:
-            base_retriever_config.update(retriever_config)
-
-        row_ids_clean: Optional[List[int]] = None
-        if row_ids:
-            row_ids_clean = sorted({int(r) for r in row_ids})
-
-        total_rows = len(row_ids_clean) if row_ids_clean else None
-
         record = JobRecord(
-            jobId=job_id,
-            datasetId=table.dataset_id,
-            tableId=table.table_id,
-            status=JobStatus.pending,
-            createdAt=now,
-            updatedAt=now,
-            token=token,
-            lionConfig=base_lion_config or None,
-            retrieverConfig=base_retriever_config or None,
-            rowIds=row_ids_clean,
-            totalRows=total_rows,
+            job_id=job_id,
+            status=JobStatus.queued,
+            task=payload.task,
+            table=payload.table,
+            selection=payload.selection,
+            config=payload.config,
+            created_at=now,
         )
-        doc = record.model_dump(by_alias=True)
+        doc = record.model_dump()
         doc["_id"] = job_id
         await self._jobs.insert_one(doc)
-        return JobEnqueueResponse(
-            jobId=job_id,
-            datasetId=table.dataset_id,
-            tableId=table.table_id,
-            status=record.status,
-            createdAt=now,
-            rowIds=row_ids_clean,
-        )
+        return record
 
-    async def update_job(self, job_id: str, **updates) -> None:
-        doc = await self._jobs.find_one({"_id": job_id})
-        if not doc:
-            raise KeyError(f"Job not found: {job_id}")
-        record = JobRecord.model_validate(doc)
-        record = record.model_copy(update=updates)
-        updated_doc = record.model_dump(by_alias=True)
-        updated_doc["_id"] = job_id
-        await self._jobs.replace_one({"_id": job_id}, updated_doc)
+    async def create_job_v1(
+        self,
+        payload: JobCreateRequestApi,
+        *,
+        table: JobTable | None = None,
+    ) -> JobRecord:
+        now = datetime.now(tz=timezone.utc)
+        job_id = uuid.uuid4().hex
+        input_payload = payload.input.model_dump(mode="json")
+        if payload.input.mode.value == "inline":
+            input_payload.pop("table", None)
+        row_range = payload.row_range.model_dump() if payload.row_range else None
+        record = JobRecord(
+            job_id=job_id,
+            status=JobStatus.queued,
+            task="CEA",
+            table=table,
+            table_id=payload.table_id,
+            input=input_payload,
+            link_columns=payload.link_columns,
+            row_range=row_range,
+            top_k=payload.top_k,
+            config=payload.config,
+            created_at=now,
+        )
+        doc = record.model_dump()
+        doc["_id"] = job_id
+        await self._jobs.insert_one(doc)
+        return record
 
     async def get_job(self, job_id: str) -> JobRecord:
-        doc = await self._jobs.find_one({"_id": job_id})
+        doc = await self._jobs.find_one({"job_id": job_id})
         if not doc:
             raise KeyError(f"Job not found: {job_id}")
         return JobRecord.model_validate(doc)
 
-    async def get_latest_job_for_table(self, table_id: str) -> Optional[JobRecord]:
-        doc = await self._jobs.find_one({"tableId": table_id}, sort=[("createdAt", DESCENDING)])
+    async def update_job(self, job_id: str, **updates: Any) -> None:
+        if "status" in updates and isinstance(updates["status"], JobStatus):
+            updates["status"] = updates["status"].value
+        result = await self._jobs.update_one({"job_id": job_id}, {"$set": updates})
+        if result.matched_count == 0:
+            raise KeyError(f"Job not found: {job_id}")
+
+    async def claim_next_job(self) -> Optional[JobRecord]:
+        now = datetime.now(tz=timezone.utc)
+        doc = await self._jobs.find_one_and_update(
+            {"status": JobStatus.queued.value},
+            {"$set": {"status": JobStatus.running.value, "started_at": now}},
+            sort=[("created_at", ASCENDING)],
+            return_document=ReturnDocument.AFTER,
+        )
         if not doc:
             return None
         return JobRecord.model_validate(doc)
 
-    async def list_jobs_for_table(self, table_id: str) -> List[JobRecord]:
-        cursor = self._jobs.find({"tableId": table_id}).sort("createdAt", ASCENDING)
-        docs = await cursor.to_list(length=None)
-        return [JobRecord.model_validate(doc) for doc in docs]
+    async def mark_running_jobs_failed(self, reason: str) -> int:
+        now = datetime.now(tz=timezone.utc)
+        result = await self._jobs.update_many(
+            {"status": JobStatus.running.value},
+            {"$set": {"status": JobStatus.failed.value, "finished_at": now, "error": reason}},
+        )
+        return result.modified_count
 
-    async def set_job_result(
-        self,
-        job_id: str,
-        *,
-        output_path: Optional[Path],
-        result_path: Optional[Path],
-        total_rows: int,
-        processed_rows: Optional[int],
+    async def cancel_job(self, job_id: str) -> bool:
+        now = datetime.now(tz=timezone.utc)
+        result = await self._jobs.update_one(
+            {"job_id": job_id, "status": JobStatus.queued.value},
+            {"$set": {"status": JobStatus.cancelled.value, "finished_at": now}},
+        )
+        return result.modified_count > 0
+
+    async def save_predictions(self, job_id: str, predictions: List[PredictionRecord]) -> None:
+        await self._predictions.delete_many({"job_id": job_id})
+        if not predictions:
+            return
+        docs = [prediction.model_dump() for prediction in predictions]
+        await self._predictions.insert_many(docs)
+
+    async def save_predictions_batches(
+        self, job_id: str, batches
     ) -> None:
-        updates = {
-            "output_path": str(output_path) if output_path else None,
-            "result_path": str(result_path) if result_path else None,
-            "total_rows": total_rows,
-            "processed_rows": processed_rows,
-            "updated_at": datetime.now(tz=timezone.utc),
-        }
-        await self.update_job(job_id, **updates)
+        await self._predictions.delete_many({"job_id": job_id})
+        for batch in batches:
+            if not batch:
+                continue
+            docs = [prediction.model_dump() for prediction in batch]
+            await self._predictions.insert_many(docs)
 
-    async def save_predictions(
-        self,
-        job_id: str,
-        dataset_id: str,
-        table_id: str,
-        rows: List[ResultRow],
-        *,
-        lion_config: Optional[Dict[str, Any]] = None,
-        retriever_config: Optional[Dict[str, Any]] = None,
-        batch_size: Optional[int] = None,
-    ) -> int:
-        if batch_size is None or batch_size < 1:
-            batch_size = self._prediction_batch_rows
-
-        batch_size = max(1, batch_size)
-
-        operations: List[UpdateOne] = []
-        for row in rows:
-            annotations = [prediction.model_dump(mode="json") for prediction in row.predictions]
-            operations.append(
-                UpdateOne(
-                    {"tableId": table_id, "idRow": row.idRow},
-                    {"$set": {"annotations": annotations}},
-                )
-            )
-
-        if operations:
-            await self._table_rows.bulk_write(operations, ordered=False)
-
-        return math.ceil(len(rows) / batch_size) if rows else 0
+    async def save_prompts(self, job_id: str, prompts: List[Dict[str, Any]]) -> None:
+        await self._prompts.delete_many({"job_id": job_id})
+        if not prompts:
+            return
+        docs: List[Dict[str, Any]] = []
+        for idx, prompt in enumerate(prompts):
+            doc = dict(prompt)
+            doc["job_id"] = job_id
+            doc.setdefault("seq", idx)
+            doc.setdefault("created_at", datetime.now(tz=timezone.utc))
+            docs.append(doc)
+        if docs:
+            await self._prompts.insert_many(docs)
 
     async def get_predictions_page(
-        self,
-        dataset_id: str,
-        table_id: str,
-        page: int,
-        per_page: int,
-        row_ids: Optional[List[int]] = None,
-    ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
-        if page < 1 or per_page < 1:
-            return [], None
-
-        collected: List[Dict[str, Any]] = []
-        query: Dict[str, Any] = {"datasetId": dataset_id, "tableId": table_id}
-        shared_meta: Optional[Dict[str, Any]] = None
-
-        if row_ids:
-            row_id_list = sorted({int(rid) for rid in row_ids})
-            if not row_id_list:
-                return [], None
-            query["idRow"] = {"$in": row_id_list}
-            cursor = self._table_rows.find(query).sort("idRow", ASCENDING)
-            docs_all = await cursor.to_list(length=None)
-            start = (page - 1) * per_page
-            docs = docs_all[start : start + per_page]
-        else:
-            skip = (page - 1) * per_page
+        self, job_id: str, offset: int, limit: int
+    ) -> Tuple[List[PredictionResponse], int]:
+        if offset < 0 or limit < 1:
+            return [], 0
+        query = {"job_id": job_id}
+        total = await self._predictions.count_documents(query)
+        has_seq = await self._predictions.find_one({"job_id": job_id, "seq": {"$exists": True}})
+        if has_seq:
             cursor = (
-                self._table_rows.find(query).sort("idRow", ASCENDING).skip(skip).limit(per_page)
+                self._predictions.find({"job_id": job_id, "seq": {"$gte": offset}})
+                .sort([("seq", ASCENDING)])
+                .limit(limit)
             )
-            docs = await cursor.to_list(length=per_page)
-
-        for doc in docs:
-            if shared_meta is None:
-                shared_meta = doc.get("annotationMeta")
-            collected.append(
-                {
-                    "idRow": doc["idRow"],
-                    "data": doc.get("data", []),
-                    "predictions": doc.get("annotations", []),
-                }
+        else:
+            cursor = (
+                self._predictions.find(query)
+                .sort([("row_id", ASCENDING), ("col_id", ASCENDING)])
+                .skip(offset)
+                .limit(limit)
             )
+        docs = await cursor.to_list(length=limit)
+        predictions = [PredictionResponse.model_validate(doc) for doc in docs]
+        return predictions, total
 
-        return collected, shared_meta
+    async def get_predictions_after(
+        self, job_id: str, after_seq: int | None, limit: int
+    ) -> List[PredictionRecord]:
+        query: Dict[str, Any] = {"job_id": job_id}
+        if after_seq is not None:
+            query["seq"] = {"$gt": after_seq}
+        cursor = (
+            self._predictions.find(query)
+            .sort([("seq", ASCENDING)])
+            .limit(limit)
+        )
+        docs = await cursor.to_list(length=limit)
+        return [PredictionRecord.model_validate(doc) for doc in docs]
+
+    def iter_predictions(self, job_id: str):
+        return self._predictions.find({"job_id": job_id}).sort([("seq", ASCENDING)])
+
+    async def get_prediction_cell(
+        self, job_id: str, row_id: int, col_id: int
+    ) -> Optional[PredictionRecord]:
+        doc = await self._predictions.find_one(
+            {"job_id": job_id, "row_id": row_id, "col_id": col_id}
+        )
+        if not doc:
+            return None
+        return PredictionRecord.model_validate(doc)
+
+    async def create_upload(self, upload_id: str, payload: Dict[str, Any]) -> None:
+        doc = dict(payload)
+        doc["upload_id"] = upload_id
+        await self._uploads.insert_one(doc)
+
+    async def get_upload(self, upload_id: str) -> Optional[Dict[str, Any]]:
+        return await self._uploads.find_one({"upload_id": upload_id})
+
+    async def update_upload(self, upload_id: str, **updates: Any) -> None:
+        await self._uploads.update_one({"upload_id": upload_id}, {"$set": updates})
+
+    async def save_job_secret(self, job_id: str, model_api_key: str) -> None:
+        now = datetime.now(tz=timezone.utc)
+        expires_at = now + timedelta(seconds=self._settings.job_secret_ttl_seconds)
+        doc = {
+            "job_id": job_id,
+            "model_api_key": model_api_key,
+            "created_at": now,
+            "expires_at": expires_at,
+        }
+        await self._secrets.update_one({"job_id": job_id}, {"$set": doc}, upsert=True)
+
+    async def get_job_secret(self, job_id: str) -> Optional[str]:
+        doc = await self._secrets.find_one({"job_id": job_id})
+        if not doc:
+            return None
+        value = doc.get("model_api_key")
+        if not isinstance(value, str):
+            return None
+        return value
+
+    async def get_prompts_page(
+        self, job_id: str, offset: int, limit: int
+    ) -> Tuple[List[PromptResponse], int]:
+        if offset < 0 or limit < 1:
+            return [], 0
+        query = {"job_id": job_id}
+        total = await self._prompts.count_documents(query)
+        cursor = (
+            self._prompts.find({"job_id": job_id, "seq": {"$gte": offset}})
+            .sort([("seq", ASCENDING)])
+            .limit(limit)
+        )
+        docs = await cursor.to_list(length=limit)
+        prompts = [PromptResponse.model_validate(doc) for doc in docs]
+        return prompts, total
 
     async def close(self) -> None:
         self._client.close()
-
-    @staticmethod
-    def slice_results(
-        rows: List[Dict[str, object]], page: int, per_page: int
-    ) -> Tuple[List[Dict[str, object]], int]:
-        return _slice_results(rows, page, per_page)
-
-    @staticmethod
-    def dataframe_from_payload(table: DatasetTableRecord) -> pd.DataFrame:
-        return _dataframe_from_payload(table)
