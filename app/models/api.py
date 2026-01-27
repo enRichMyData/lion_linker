@@ -124,7 +124,6 @@ class FinalDecision(BaseModel):
     confidence_label: Optional[str] = None
     confidence_score: Optional[float] = None
     match: Optional[bool] = None
-    explanation: Optional[str] = None
     model_config = ConfigDict(extra="ignore")
 
 
