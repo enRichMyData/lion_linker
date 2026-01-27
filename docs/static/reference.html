@@ -1,285 +1,292 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LionLinker API Reference</title>
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.6.1/github-markdown.min.css"
-      integrity="sha512-yfz49FpM4ps3u+4swYceJ9Ay6xJCXKmU6U7U4gn2mTt9MldioWfGmj2e4SBq6p1V9NcpAJ5zT5a9mMqlhtPJUQ=="
-      crossorigin="anonymous"
-      referrerpolicy="no-referrer"
-    />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Entity Linking REST API</title>
     <style>
-      :root {
-        color-scheme: light;
-      }
-      body {
-        margin: 0;
-        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
-          Helvetica, Arial, sans-serif;
-        background: linear-gradient(180deg, #0c1220 0%, #111a2e 100%);
-        color: #1f2933;
-      }
-      .hero {
-        padding: 64px 24px;
-        color: #f5f8ff;
-        text-align: center;
-      }
-      .hero h1 {
-        font-size: 44px;
-        margin-bottom: 12px;
-        font-weight: 800;
-      }
-      .hero p {
-        margin: 0;
-        font-size: 18px;
-        line-height: 1.6;
-        opacity: 0.85;
-      }
-      .layout {
-        display: grid;
-        grid-template-columns: 260px 1fr;
-        gap: 24px;
-        max-width: 1200px;
-        margin: -40px auto 80px;
-        padding: 0 24px;
-      }
-      nav {
-        background: rgba(17, 24, 39, 0.92);
-        backdrop-filter: blur(12px);
-        border-radius: 16px;
-        padding: 24px;
-        height: fit-content;
-        position: sticky;
-        top: 24px;
-      }
-      nav h2 {
-        color: #9fb5ff;
-        font-size: 14px;
-        margin: 0 0 16px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-      }
-      nav a {
-        display: block;
-        color: #d6e2ff;
-        text-decoration: none;
-        margin: 8px 0;
-        font-size: 15px;
-        transition: color 0.2s ease;
-      }
-      nav a:hover {
-        color: #ffffff;
-      }
-      main {
-        background: #ffffff;
-        border-radius: 18px;
-        box-shadow: 0 24px 60px rgba(12, 18, 32, 0.22);
-        padding: 48px 56px;
-      }
-      .markdown-body {
-        box-sizing: border-box;
-        width: 100%;
-      }
-      .markdown-body h1,
-      .markdown-body h2,
-      .markdown-body h3 {
-        color: #0b1628;
-        font-weight: 700;
-      }
-      pre {
-        background: #0b1628;
-        color: #d3dcff;
-        padding: 16px 20px;
-        border-radius: 12px;
-        overflow-x: auto;
-      }
-      code {
-        font-family: "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas,
-          "Liberation Mono", "Courier New", monospace;
-      }
-      table {
-        border-collapse: collapse;
-        width: 100%;
-        margin: 24px 0;
-      }
-      th,
-      td {
-        border: 1px solid #dde3f0;
-        padding: 12px 16px;
-        text-align: left;
-      }
-      th {
-        background: #f5f7ff;
-      }
-      @media (max-width: 960px) {
-        .layout {
-          grid-template-columns: 1fr;
-        }
-        nav {
-          position: static;
-        }
-      }
+      body { font-family: Arial, sans-serif; margin: 32px; line-height: 1.5; }
+      h1, h2, h3 { margin-top: 24px; }
+      code, pre { font-family: "Courier New", monospace; }
+      pre { background: #f7f7f7; padding: 12px; overflow: auto; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+      th { background: #f0f0f0; }
     </style>
   </head>
   <body>
-    <header class="hero">
-      <h1>LionLinker API Reference</h1>
-      <p>
-        A concise guide to onboarding datasets, submitting jobs, and retrieving
-        predictions through the LionLinker REST API.
-      </p>
-    </header>
+    <h1>Entity Linking REST API</h1>
+    <p>
+      Standalone HTTP API for LLM-based Entity Linking. The service accepts tabular data,
+      links entity mentions per cell, and stores results in MongoDB.
+    </p>
 
-    <div class="layout">
-      <nav>
-        <h2>On this page</h2>
-        <a href="#overview">Overview</a>
-        <a href="#endpoints">Endpoints</a>
-        <a href="#configs">Request Configuration</a>
-        <a href="#responses">Response Codes</a>
-        <a href="#notes">Operational Notes</a>
-      </nav>
+    <h2>Authentication</h2>
+    <p>
+      All endpoints require an API key. Provide it via
+      <code>X-API-Key: &lt;key&gt;</code> or <code>Authorization: Bearer &lt;key&gt;</code>.
+    </p>
 
-      <main>
-        <article class="markdown-body">
-          <h2 id="overview">Overview</h2>
-          <p>
-            Base URL: <code>http://&lt;host&gt;:9000</code><br />
-            Authentication: Optional <code>token</code> query parameter stored with
-            jobs. If you provide a token when submitting a job, you must pass the same
-            token when querying its status.
-          </p>
+    <h2>Endpoint Overview</h2>
+    <ul>
+      <li><code>GET /health</code> - liveness check</li>
+      <li><code>GET /capabilities</code> - supported modes, limits, defaults</li>
+      <li><code>POST /jobs</code> - create a job (inline | uri | upload_id); always returns <code>job_id</code></li>
+      <li><code>GET /jobs/{job_id}</code> - job status + progress</li>
+      <li><code>GET /jobs/{job_id}/results</code> - cursor-paged cell-level finals (no candidates)</li>
+      <li><code>GET /jobs/{job_id}/cells/{row}/{col}/candidates</code> - lazy candidates for one cell</li>
+      <li><code>POST /jobs/{job_id}:cancel</code> - cancel a job</li>
+    </ul>
+    <p>Optional:</p>
+    <ul>
+      <li><code>POST /uploads</code> - pre-signed upload URL + <code>upload_id</code></li>
+      <li><code>GET /jobs/{job_id}/events</code> - SSE progress/events</li>
+      <li><code>GET /jobs/{job_id}/results/download</code> - signed URL export</li>
+      <li><code>GET /jobs/{job_id}/artifacts</code> - list stored artifacts</li>
+    </ul>
 
-          <p>
-            The interactive Swagger UI is always available at
-            <code>/docs</code> and the ReDoc interface at <code>/redoc</code>.
-          </p>
+    <h2>Stable Identifiers</h2>
+    <ul>
+      <li><code>job_id</code>: opaque string, globally unique per run.</li>
+      <li><code>table_id</code>: optional opaque client-provided identifier.</li>
+      <li><code>row</code>: zero-based row index in the submitted table.</li>
+      <li><code>col</code>: zero-based column index in the submitted table.</li>
+      <li><code>cell_id</code>: stable derived identifier (for example <code>row_id:col</code>).</li>
+    </ul>
 
-          <h2 id="endpoints">Endpoints</h2>
+    <h2>Result Models</h2>
+    <h3>Final prediction per cell</h3>
+    <ul>
+      <li><code>entity_id</code> (string; <code>NIL</code> allowed)</li>
+      <li><code>label</code> (optional string)</li>
+      <li><code>score</code> (float 0..1)</li>
+      <li><code>status</code> (<code>linked</code> | <code>nil</code> | <code>error</code>)</li>
+    </ul>
+    <h3>Candidates (per-cell endpoint)</h3>
+    <ul>
+      <li><code>rank</code> (int)</li>
+      <li><code>entity_id</code> (string)</li>
+      <li><code>label</code> (optional string)</li>
+      <li><code>score</code> (float 0..1)</li>
+      <li><code>features</code> (optional map)</li>
+    </ul>
 
-          <h3>1. Register Tables — <code>POST /dataset</code></h3>
-          <p>
-            Registers one or more tables. The payload matches the onboarding format and
-            stores rows individually in MongoDB.
-          </p>
-          <pre><code>POST /dataset
-Content-Type: application/json
+    <h2>Limits and Errors</h2>
+    <p>Limits are exposed via <code>GET /capabilities</code>.</p>
+    <ul>
+      <li><code>400</code> invalid input</li>
+      <li><code>401</code> invalid API key</li>
+      <li><code>404</code> job not found</li>
+      <li><code>409</code> job not cancellable</li>
+      <li><code>413</code> payload too large</li>
+      <li><code>422</code> invalid schema or format</li>
+      <li><code>429</code> rate limited</li>
+      <li><code>503</code> model/retriever unavailable</li>
+    </ul>
 
-[
-  {
-    "datasetName": "EMD-BC",
-    "tableName": "SN-BC-1753173071015729",
-    "header": ["Point of Interest", "Place"],
-    "rows": [
-      {"idRow": 1, "data": ["John F. Kennedy Presidential Library and Museum", "Columbia Point"]},
-      {"idRow": 2, "data": ["Petrie Museum of Egyptian Archaeology", "London"]}
-    ],
-    "lionConfig": {
-      "model_name": "gemma2:2b",
-      "chunk_size": 16,
-      "mention_columns": ["Point of Interest"],
-      "table_ctx_size": 2
-    },
-    "retrieverConfig": {
-      "class_path": "lion_linker.retrievers.LamapiClient",
-      "endpoint": "https://lamapi.hel.sintef.cloud/lookup/entity-retrieval",
-      "token": "lamapi_demo_2023",
-      "num_candidates": 5
-    }
+    <h2>Endpoints with Examples</h2>
+
+    <h3>GET /health</h3>
+    <pre><code>{
+  "ok": true,
+  "status": "healthy",
+  "time": "2025-01-15T10:12:03Z"
+}</code></pre>
+
+    <h3>GET /capabilities</h3>
+    <pre><code>{
+  "ok": true,
+  "data": {
+    "input_modes": ["inline", "uri", "upload_id"],
+    "supported_formats": ["text/csv", "application/json"],
+    "max_inline_bytes": 1048576,
+    "max_rows_inline": 5000,
+    "max_top_k": 20,
+    "max_link_columns": 50,
+    "supports_sse": true,
+    "supports_exports": true,
+    "default_top_k": 5,
+    "default_timeout_seconds": 900
   }
-]</code></pre>
-          <p>
-            Response: array of registration objects containing <code>datasetId</code>,
-            <code>tableId</code>, and metadata.
-          </p>
+}</code></pre>
 
-          <h3>2. Trigger Annotation Runs — <code>POST /annotate</code></h3>
-          <p>
-            Enqueue LionLinker runs for each table in the payload. Tables are upserted as
-            part of submission if necessary.
-          </p>
-          <pre><code>POST /annotate?token=optional
-Content-Type: application/json
-[ ... same structure as POST /dataset ... ]</code></pre>
-          <p>
-            Response: array of queued job descriptors (jobId, datasetId, tableId,
-            status, createdAt).
-          </p>
+    <h3>POST /jobs (inline)</h3>
+    <pre><code>{
+  "table_id": "my_table_001",
+  "input": {
+    "mode": "inline",
+    "format": "application/json",
+    "table": {
+      "header": ["Title", "Director", "Year"],
+      "rows": [
+        {"row_id": "r1", "cells": ["Inception", "Christopher Nolan", "2010"]},
+        {"row_id": "r2", "cells": ["Alien", "Ridley Scott", "1979"]}
+      ]
+    }
+  },
+  "link_columns": ["Title"],
+  "row_range": {"start": 0, "limit": 1000},
+  "top_k": 5,
+  "execution": "async"
+}</code></pre>
+    <p>
+      Per-request model API keys can be supplied as <code>config.lion.model_api_key</code> or via
+      the <code>X-LLM-API-Key</code> header. They are stored ephemerally and not persisted in the
+      job record.
+    </p>
 
-          <h3>3. Poll Latest Annotation for a Table —
-            <code>GET /dataset/{datasetId}/table/{tableId}</code>
-          </h3>
-          <pre><code>GET /dataset/6177cc032e0d40628b6f00fcfa9d8310/table/50743956de014184acb49288874f4110?page=1&amp;per_page=50&amp;token=optional</code></pre>
-          <p>
-            Returns the most recent job and a page of predictions. Predictions stream directly
-            from table rows stored in MongoDB. Legacy JSON files are used only if no Mongo
-            annotations exist (for historic jobs).
-          </p>
+    <pre><code>{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "table_id": "my_table_001",
+  "status": "queued",
+  "created_at": "2025-01-15T10:12:08Z",
+  "limits": {
+    "top_k": 5
+  }
+}</code></pre>
 
-          <h3>4. Fetch Annotation by ID — <code>GET /annotate/{jobId}</code></h3>
-          <p>
-            View job status, configuration echoes, and prediction batch metadata without
-            streaming row data.
-          </p>
+    <h3>POST /jobs (uri)</h3>
+    <pre><code>{
+  "table_id": "big_table_2025_01",
+  "input": {
+    "mode": "uri",
+    "format": "text/csv",
+    "uri": "s3://bucket/path/table.csv"
+  },
+  "link_columns": [0],
+  "row_range": {"start": 0, "limit": 2000000},
+  "top_k": 10,
+  "execution": "async"
+}</code></pre>
 
-          <h2 id="configs">Request Configuration</h2>
-          <h3><code>lionConfig</code></h3>
-          <p>All keys use snake_case and map directly to LionLinker arguments.</p>
-          <table>
-            <tr><th>Key</th><th>Type</th><th>Description</th></tr>
-            <tr><td>model_name</td><td>string</td><td>Model identifier (default <code>gemma2:2b</code>).</td></tr>
-            <tr><td>chunk_size</td><td>integer</td><td>Rows per batch; must be ≥ 1.</td></tr>
-            <tr><td>mention_columns</td><td>array[string]</td><td>Columns used to extract mentions.</td></tr>
-            <tr><td>table_ctx_size</td><td>integer</td><td>Context window around each row. Default 1.</td></tr>
-            <tr><td>prompt_template</td><td>string</td><td>Template name or path.</td></tr>
-            <tr><td>prompt_file_path</td><td>string</td><td>Explicit prompt file path.</td></tr>
-            <tr><td>few_shot_examples_file_path</td><td>string</td><td>Few-shot examples file path.</td></tr>
-            <tr><td>format_candidates</td><td>boolean</td><td>Format retriever candidates (default true).</td></tr>
-            <tr><td>compact_candidates</td><td>boolean</td><td>Compact candidates when formatting is disabled (default true).</td></tr>
-            <tr><td>model_api_provider</td><td>string</td><td><code>ollama</code> | <code>openrouter</code> | <code>huggingface</code> | <code>cerebras</code>; defaults to <code>ollama</code>.</td></tr>
-            <tr><td>ollama_host</td><td>string</td><td>Base URL for the Ollama service (default <code>http://ollama:11434</code>).</td></tr>
-            <tr><td>model_api_key</td><td>string</td><td>API key for providers that require it (OpenRouter, Cerebras).</td></tr>
-            <tr><td>gt_columns</td><td>array[string]</td><td>Columns excluded from prediction.</td></tr>
-            <tr><td>answer_format</td><td>string</td><td>Custom answer format.</td></tr>
-            <tr><td>prediction_batch_size</td><td>integer</td><td>Overrides default Mongo batch size for predictions.</td></tr>
-          </table>
+    <h3>POST /uploads (optional)</h3>
+    <pre><code>{
+  "content_type": "text/csv",
+  "content_length": 52428800
+}</code></pre>
 
-          <h3><code>retrieverConfig</code></h3>
-          <p>Keys may be supplied in either snake_case or camelCase; the API normalises them to snake_case.</p>
-          <table>
-            <tr><th>Key</th><th>Type</th><th>Description</th></tr>
-            <tr><td>class_path</td><td>string</td><td>Fully qualified retriever class. Defaults to <code>lion_linker.retrievers.LamapiClient</code>.</td></tr>
-            <tr><td>endpoint</td><td>string</td><td>Retriever endpoint URL.</td></tr>
-            <tr><td>token</td><td>string</td><td>Retriever authentication token.</td></tr>
-            <tr><td>num_candidates</td><td>integer</td><td>Candidate count per mention.</td></tr>
-            <tr><td>kg</td><td>string</td><td>Knowledge graph, defaults to the table metadata.</td></tr>
-            <tr><td>cache</td><td>boolean</td><td>Retriever-specific caching flag.</td></tr>
-            <tr><td>max_retries</td><td>integer</td><td>Optional retry count.</td></tr>
-            <tr><td>backoff_factor</td><td>number</td><td>Optional backoff factor.</td></tr>
-            <tr><td colspan="3">Any extra keys are forwarded to the retriever constructor.</td></tr>
-          </table>
+    <pre><code>{
+  "ok": true,
+  "upload_id": "up_01J2H2B5X7FQ",
+  "upload_url": "/uploads/up_01J2H2B5X7FQ",
+  "expires_at": "2025-01-15T10:27:08Z"
+}</code></pre>
 
-          <h2 id="responses">Response Codes</h2>
-          <table>
-            <tr><th>Status</th><th>Meaning</th></tr>
-            <tr><td>200</td><td>Request processed successfully.</td></tr>
-            <tr><td>400</td><td>Malformed payload or invalid parameters.</td></tr>
-            <tr><td>403</td><td>Token mismatch when polling job/status.</td></tr>
-            <tr><td>404</td><td>Dataset, table, or job not found.</td></tr>
-            <tr><td>500</td><td>Unexpected failure during processing.</td></tr>
-          </table>
+    <h3>GET /jobs/{job_id}</h3>
+    <pre><code>{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "table_id": "my_table_001",
+  "status": "running",
+  "progress": {
+    "rows_total": 2000000,
+    "rows_processed": 325000,
+    "cells_total": 2000000,
+    "cells_processed": 325000
+  },
+  "started_at": "2025-01-15T10:12:12Z",
+  "updated_at": "2025-01-15T10:20:43Z"
+}</code></pre>
 
-          <h2 id="notes">Operational Notes</h2>
-          <ul>
-            <li>Tables are saved row-by-row in MongoDB (`lion_table_rows`) and should be aggregated via `datasetId` and `tableId`.</li>
-            <li>Predictions are persisted directly on each table row. Job responses echo the batch sizing that was applied when the annotations were generated.</li>
-            <li>Legacy CSV/JSON artifacts under `/app/data/api_runs/` remain for backward compatibility.</li>
-          </ul>
-        </article>
-      </main>
-    </div>
+    <h3>GET /jobs/{job_id}/results</h3>
+    <pre><code>{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "cursor": "eyJqIjoiam9iXzAxSjJIMkE5SzlNMCIsInIiOjEwMDAsImMiOjB9",
+  "next_cursor": "eyJqIjoiam9iXzAxSjJIMkE5SzlNMCIsInIiOjIwMDAsImMiOjB9",
+  "results": [
+    {
+      "row": 0,
+      "col": 0,
+      "cell_id": "r1:0",
+      "mention": "Inception",
+      "final": {
+        "entity_id": "Q25188",
+        "label": "Inception",
+        "score": 0.97,
+        "status": "linked"
+      }
+    }
+  ]
+}</code></pre>
+
+    <h3>GET /jobs/{job_id}/cells/{row}/{col}/candidates</h3>
+    <pre><code>{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "row": 0,
+  "col": 0,
+  "cell_id": "r1:0",
+  "mention": "Inception",
+  "candidates": [
+    {"rank": 1, "entity_id": "Q25188", "label": "Inception", "score": 0.97},
+    {"rank": 2, "entity_id": "Q3797611", "label": "Inception (soundtrack)", "score": 0.21}
+  ]
+}</code></pre>
+
+    <h3>POST /jobs/{job_id}:cancel</h3>
+    <pre><code>{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "status": "cancelling"
+}</code></pre>
+
+    <h3>GET /jobs/{job_id}/events (optional SSE)</h3>
+    <pre><code>event: progress
+data: {"job_id":"job_01J2H2A9K9M0","rows_processed":400000,"cells_processed":400000}</code></pre>
+
+    <h3>GET /jobs/{job_id}/results/download (optional)</h3>
+    <pre><code>{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "download_url": "/jobs/job_01J2H2A9K9M0/artifacts/results.csv",
+  "expires_at": "2025-01-15T11:12:08Z"
+}</code></pre>
+
+    <h3>GET /jobs/{job_id}/artifacts (optional)</h3>
+    <pre><code>{
+  "ok": true,
+  "job_id": "job_01J2H2A9K9M0",
+  "artifacts": [
+    {"name": "results.csv", "type": "export", "size_bytes": 1048576}
+  ]
+}</code></pre>
+
+    <h2>MongoDB Storage Guidance (High Level)</h2>
+    <h3>Collections</h3>
+    <ul>
+      <li><code>jobs</code>: job metadata, config, status, timestamps</li>
+      <li><code>job_events</code>: progress/events, append-only</li>
+      <li><code>cell_predictions</code>: final decisions per cell</li>
+      <li><code>cell_candidates</code>: per-cell candidates (or embedded for small jobs)</li>
+      <li><code>uploads</code>: upload handles, URIs, expiry</li>
+    </ul>
+    <h3>Chunking strategy</h3>
+    <ul>
+      <li>Store predictions in row-based chunks (for example 5k-20k rows per chunk).</li>
+      <li>Store candidates separately keyed by <code>(job_id, row, col)</code>.</li>
+      <li>Stream writes and batch inserts for massive tables.</li>
+    </ul>
+    <h3>Index recommendations</h3>
+    <ul>
+      <li><code>cell_predictions</code>: compound <code>(job_id, row, col)</code></li>
+      <li><code>cell_predictions</code>: <code>(job_id, status, score)</code></li>
+      <li><code>cell_predictions</code>: <code>(job_id, row)</code></li>
+      <li><code>cell_candidates</code>: <code>(job_id, row, col)</code></li>
+      <li><code>jobs</code>: <code>(status, updated_at)</code>, <code>(table_id)</code></li>
+    </ul>
+
+    <h2>OpenAPI-like Outline</h2>
+    <ul>
+      <li><code>GET /health</code> - liveness state</li>
+      <li><code>GET /capabilities</code> - limits, supported input modes, defaults</li>
+      <li><code>POST /jobs</code> - create job; fields: <code>table_id</code>, <code>input</code>, <code>link_columns</code>, <code>row_range</code>, <code>top_k</code>, <code>execution</code></li>
+      <li><code>GET /jobs/{job_id}</code> - status and progress</li>
+      <li><code>GET /jobs/{job_id}/results</code> - cursor-paged final decisions</li>
+      <li><code>GET /jobs/{job_id}/cells/{row}/{col}/candidates</code> - candidates per cell</li>
+      <li><code>POST /jobs/{job_id}:cancel</code> - cancel job</li>
+      <li>Optional: <code>POST /uploads</code>, <code>GET /jobs/{job_id}/events</code>, <code>GET /jobs/{job_id}/results/download</code>, <code>GET /jobs/{job_id}/artifacts</code></li>
+    </ul>
   </body>
 </html>

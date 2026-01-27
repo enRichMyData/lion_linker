@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import urllib.parse
+from typing import Any
 
 import aiohttp
+
+from lion_linker.candidate_cache import CandidateCache
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +23,8 @@ class RetrieverClient:
         max_retries=3,
         backoff_factor=0.5,
         num_candidates=10,
+        mongo_cache: bool | None = None,
+        candidate_cache: CandidateCache | None = None,
     ):
         self.endpoint = endpoint
         self.token = token
@@ -26,31 +32,104 @@ class RetrieverClient:
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
         self.num_candidates = num_candidates
+        if candidate_cache is not None:
+            self._candidate_cache = candidate_cache
+        else:
+            self._candidate_cache = CandidateCache.from_env(enabled=mongo_cache)
 
     async def fetch_entities(self, mention: str, session: aiohttp.ClientSession, **kwargs):
         raise NotImplementedError
 
+    @staticmethod
+    def _normalize_cache_value(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                str(k): RetrieverClient._normalize_cache_value(value[k])
+                for k in sorted(value, key=lambda item: str(item))
+            }
+        if isinstance(value, (list, tuple)):
+            return [RetrieverClient._normalize_cache_value(v) for v in value]
+        if isinstance(value, set):
+            return sorted(RetrieverClient._normalize_cache_value(v) for v in value)
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        return str(value)
+
+    def _build_cache_payload(self, mention: str, params: dict[str, Any]) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "mention": mention,
+            "retriever": f"{self.__class__.__module__}.{self.__class__.__qualname__}",
+            "endpoint": self.endpoint,
+            "num_candidates": self.num_candidates,
+            "params": self._normalize_cache_value(params),
+        }
+        kg_value = getattr(self, "kg", None)
+        if kg_value is not None:
+            payload["kg"] = kg_value
+        return payload
+
+    def _build_cache_key(self, mention: str, params: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        payload = self._build_cache_payload(mention, params)
+        payload_json = json.dumps(payload, sort_keys=True, ensure_ascii=True, default=str)
+        cache_key = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+        return cache_key, payload
+
+    @staticmethod
+    def _cache_needs_update(candidates: list[dict], forced_ids: list[str]) -> bool:
+        if not forced_ids:
+            return False
+        forced_set = {str(fid).strip() for fid in forced_ids if str(fid).strip()}
+        if not forced_set:
+            return False
+        candidate_ids = {
+            str(candidate.get("id", "")).strip()
+            for candidate in candidates or []
+            if candidate is not None
+        }
+        return not forced_set.issubset(candidate_ids)
+
     async def fetch_multiple_entities(self, mentions: list[str], **kwargs):
         # Extract mention_to_qids mapping from kwargs if present
-        mention_to_qids = kwargs.get("mention_to_qids", {})
+        mention_to_qids = kwargs.pop("mention_to_qids", {})
 
         async with aiohttp.ClientSession() as session:
             # Create tasks with individual kwargs for each mention
             tasks = []
+            task_meta = []
+            output: dict[str, list[dict]] = {}
             for mention in mentions:
                 # Check if this mention has forced QIDs in the mapping
-                mention_kwargs = {}
+                mention_kwargs = dict(kwargs)
                 if mention in mention_to_qids:
-                    mention_kwargs["forced_ids"] = mention_to_qids[mention]
+                    forced_ids = mention_to_qids[mention]
+                    if isinstance(forced_ids, (list, tuple, set)):
+                        mention_kwargs["forced_ids"] = sorted(str(fid) for fid in forced_ids)
+                    else:
+                        mention_kwargs["forced_ids"] = [str(forced_ids)]
+
+                forced_ids = mention_kwargs.get("forced_ids", [])
+                cache_key = None
+                cache_payload = None
+                if self._candidate_cache is not None:
+                    cache_key, cache_payload = self._build_cache_key(mention, mention_kwargs)
+                    cached_doc = await self._candidate_cache.get(cache_key)
+                    cached_candidates = None
+                    if isinstance(cached_doc, dict):
+                        cached_candidates = cached_doc.get("candidates")
+                    if cached_candidates is not None and not self._cache_needs_update(
+                        cached_candidates, forced_ids
+                    ):
+                        output[mention] = cached_candidates
+                        continue
 
                 # Create task with any mention-specific kwargs
                 tasks.append(self.fetch_entities(mention, session, **mention_kwargs))
+                task_meta.append((mention, cache_key, cache_payload, forced_ids))
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             # Handle failed requests (e.g., those returning exceptions)
-            output = {}
-            for mention, result in zip(mentions, results):
+            for (mention, cache_key, cache_payload, forced_ids), result in zip(task_meta, results):
                 if isinstance(result, Exception):
                     logger.warning(
                         "[RetrieverClient] Failed to retrieve candidates for "
@@ -59,6 +138,8 @@ class RetrieverClient:
                     output[mention] = []
                 else:
                     output[mention] = result
+                    if self._candidate_cache is not None and cache_key is not None:
+                        await self._candidate_cache.set(cache_key, cache_payload, result)
             return output
 
 
@@ -73,6 +154,8 @@ class LamapiClient(RetrieverClient):
         num_candidates=10,
         kg="wikidata",
         cache: bool = False,
+        mongo_cache: bool | None = None,
+        candidate_cache: CandidateCache | None = None,
     ):
         super().__init__(
             endpoint=endpoint,
@@ -81,6 +164,8 @@ class LamapiClient(RetrieverClient):
             max_retries=max_retries,
             backoff_factor=backoff_factor,
             num_candidates=num_candidates,
+            mongo_cache=mongo_cache,
+            candidate_cache=candidate_cache,
         )
         self.kg = kg
         self.cache = cache
@@ -102,6 +187,13 @@ class LamapiClient(RetrieverClient):
                 params["ids"] = " ".join(forced_ids)
             else:
                 params["ids"] = forced_ids
+
+        types_filter = kwargs.get("types")
+        if types_filter:
+            if isinstance(types_filter, (list, tuple, set)):
+                params["types"] = " ".join(str(t) for t in types_filter)
+            else:
+                params["types"] = str(types_filter)
 
         retries = 0
         while retries < self.max_retries:

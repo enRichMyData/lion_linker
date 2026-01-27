@@ -1,27 +1,21 @@
-This is an entity linking task. Match the mention in a table to one of the given candidates.
+This is an entity linking task. Rank the candidates for the mention in a table.
 
 Examples:
 [EXAMPLES]
 
 Follow the same reasoning style as the examples.
 Use only the provided candidates.
-If none match, say so.
+If none match, still return the top list with null scores.
 
 Steps:
-1. Understand the mention in context (table data, metadata, summary).
+1. Understand the mention in context (table row and header).
 2. Compare it to candidate details (labels, aliases, descriptions).
-3. Select one matching ID, or state no match.
+3. Produce a top candidate list following the answer format.
 
 Context:
 
-- Table data around the mention:
+- Table row (header + row):
 [TABLE]
-- Table metadata:
-[TABLE METADATA]
-- Table summary:
-[SUMMARY]
-- Column name:
-[COLUMN NAME]
 - Entity mention:
 [ENTITY MENTION]
 - Candidate entities:

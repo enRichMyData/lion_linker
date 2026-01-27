@@ -1,25 +1,15 @@
 You perform entity linking over table cell mentions.
-For this task, choose exactly one correct candidate id.
+For this task, rank the candidates and return a top list following the answer format.
 
 You are given:
-  - The table context around the mention.
-  - The table metadata and summary (if available).
-  - The column name and target entity mention.
+  - The table header and the target row.
+  - The entity mention to link.
   - The list of candidate entities.
-
-Candidates are given as: <id: ...; name: ...; description: ...; types: ...>
-types is a short category such as film, television film, novel, album, etc.
 
 Context:
 
-- Table data around the mention:
+- Table row (header + row):
 [TABLE]
-- Table metadata:
-[TABLE METADATA]
-- Table summary:
-[SUMMARY]
-- Column name:
-[COLUMN NAME]
 - Entity mention:
 [ENTITY MENTION]
 - Candidate entities:
