@@ -92,22 +92,27 @@ def _parse_candidate_ranking(raw: Any) -> List[Dict[str, Any]]:
     return [item for item in candidates if isinstance(item, dict)]
 
 
-def _pick_candidate_entry(
-    entries: List[Dict[str, Any]],
-    predicted_id: Optional[str],
-) -> Optional[Dict[str, Any]]:
-    if not entries:
-        return None
-    for entry in entries:
-        if entry.get("match") is True:
-            return entry
-    if predicted_id:
-        predicted_norm = str(predicted_id).strip()
-        for entry in entries:
-            entry_id = str(entry.get("id", "")).strip()
-            if entry_id == predicted_norm:
-                return entry
-    return entries[0]
+def _parse_candidate_payload(raw: Any) -> tuple[List[Dict[str, Any]], Optional[str]]:
+    if raw is None:
+        return [], None
+    if isinstance(raw, str) and raw.strip():
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return [], None
+    else:
+        payload = raw
+    explanation: Optional[str] = None
+    if isinstance(payload, dict):
+        candidates = payload.get("candidate_ranking") or payload.get("candidateRanking") or []
+        explanation_raw = payload.get("explanation")
+        if isinstance(explanation_raw, str) and explanation_raw.strip():
+            explanation = explanation_raw.strip()
+    elif isinstance(payload, list):
+        candidates = payload
+    else:
+        candidates = []
+    return [item for item in candidates if isinstance(item, dict)], explanation
 
 
 def _strip_model_api_key(
@@ -263,31 +268,39 @@ async def job_results(
 
     for prediction in page:
         raw = prediction.raw or {}
-        candidates_raw = _parse_candidate_ranking(raw.get("candidate_ranking"))
-        chosen = _pick_candidate_entry(candidates_raw, prediction.entity.id)
+        candidates_raw, explanation = _parse_candidate_payload(raw.get("candidate_ranking"))
+        if not explanation:
+            llm_raw = raw.get("llm_answer")
+            if isinstance(llm_raw, str) and llm_raw.strip():
+                try:
+                    llm_payload = json.loads(llm_raw)
+                except json.JSONDecodeError:
+                    llm_payload = None
+                if isinstance(llm_payload, dict):
+                    explanation_raw = llm_payload.get("explanation")
+                    if isinstance(explanation_raw, str) and explanation_raw.strip():
+                        explanation = explanation_raw.strip()
 
-        chosen_id = None
-        chosen_name = None
-        chosen_types = None
-        chosen_description = None
-        chosen_confidence_label = None
-        chosen_confidence_score = None
-        chosen_match = None
-        if isinstance(chosen, dict):
-            chosen_id = str(chosen.get("id", "")) or None
-            chosen_name = chosen.get("name") or chosen.get("label")
-            chosen_name = str(chosen_name) if chosen_name not in (None, "") else None
-            chosen_types = chosen.get("types")
-            chosen_description = chosen.get("description")
-            chosen_description = (
-                str(chosen_description) if chosen_description not in (None, "") else None
+        candidate_entries: List[Dict[str, Any]] = []
+        for entry in candidates_raw[:5]:
+            entry_id = str(entry.get("id", "")) or None
+            name_value = entry.get("name") or entry.get("label")
+            name_value = str(name_value) if name_value not in (None, "") else None
+            description_value = entry.get("description")
+            description_value = (
+                str(description_value) if description_value not in (None, "") else None
             )
-            chosen_confidence_label = chosen.get("confidence_label")
-            chosen_confidence_score = chosen.get("confidence_score")
-            chosen_match = chosen.get("match")
-
-        if chosen_match is None:
-            chosen_match = bool(chosen_id and chosen_id == prediction.entity.id)
+            candidate_entries.append(
+                {
+                    "id": entry_id,
+                    "name": name_value,
+                    "types": entry.get("types"),
+                    "description": description_value,
+                    "confidence_label": entry.get("confidence_label"),
+                    "confidence_score": entry.get("confidence_score"),
+                    "match": entry.get("match"),
+                }
+            )
 
         results.append(
             {
@@ -295,19 +308,8 @@ async def job_results(
                 "col": prediction.col_id,
                 "cell_id": f"{prediction.row_id}:{prediction.col_id}",
                 "mention": prediction.mention,
-                "final": {
-                    "id": chosen_id or prediction.entity.id,
-                    "name": chosen_name or prediction.entity.label,
-                    "types": chosen_types,
-                    "description": chosen_description,
-                    "confidence_label": chosen_confidence_label,
-                    "confidence_score": (
-                        chosen_confidence_score
-                        if chosen_confidence_score is not None
-                        else prediction.score
-                    ),
-                    "match": chosen_match,
-                },
+                "candidate_ranking": candidate_entries,
+                "explanation": explanation,
             }
         )
 
