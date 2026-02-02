@@ -11,6 +11,7 @@ class InputMode(str, Enum):
     inline = "inline"
     uri = "uri"
     upload_id = "upload_id"
+    multipart = "multipart"
 
 
 class InputFormat(str, Enum):
@@ -71,6 +72,9 @@ class JobInput(BaseModel):
         elif self.mode == InputMode.upload_id:
             if not self.upload_id:
                 raise ValueError("upload_id input requires upload_id")
+        elif self.mode == InputMode.multipart:
+            # multipart uploads are finalized after job creation
+            pass
         return self
 
 
@@ -121,8 +125,7 @@ class FinalDecision(BaseModel):
     name: Optional[str] = None
     types: Optional[List[Dict[str, Any]]] = None
     description: Optional[str] = None
-    confidence_label: Optional[str] = None
-    confidence_score: Optional[float] = None
+    score: Optional[float] = None
     match: Optional[bool] = None
     model_config = ConfigDict(extra="ignore")
 
@@ -143,32 +146,6 @@ class ResultsPageResponse(BaseModel):
     cursor: Optional[str] = None
     next_cursor: Optional[str] = None
     results: List[CellResult]
-    model_config = ConfigDict(extra="ignore")
-
-
-class CandidateEntry(BaseModel):
-    rank: int
-    id: Optional[str] = None
-    confidence_label: Optional[str] = None
-    confidence_score: Optional[float] = None
-    name: Optional[str] = None
-    types: Optional[List[Dict[str, Any]]] = None
-    description: Optional[str] = None
-    entity_id: str
-    label: Optional[str] = None
-    score: Optional[float] = None
-    features: Optional[Dict[str, Any]] = None
-    model_config = ConfigDict(extra="ignore")
-
-
-class CandidateResponse(BaseModel):
-    ok: bool = True
-    job_id: str
-    row: int
-    col: int
-    cell_id: str
-    mention: str
-    candidates: List[CandidateEntry]
     model_config = ConfigDict(extra="ignore")
 
 
@@ -203,6 +180,11 @@ class UploadCreateResponse(BaseModel):
     upload_id: str
     upload_url: str
     expires_at: datetime
+    model_config = ConfigDict(extra="ignore")
+
+
+class UploadFinalizeRequest(BaseModel):
+    total_parts: Optional[int] = None
     model_config = ConfigDict(extra="ignore")
 
 

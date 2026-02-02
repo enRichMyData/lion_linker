@@ -990,7 +990,11 @@ class LinkerRunner:
                         if entry_id:
                             entity_id = entry_id
                         label = self._coerce_str(entry.get("name") or entry.get("label"))
-                        score = self._coerce_float(entry.get("confidence_score"))
+                        score = self._coerce_float(
+                            entry.get("score")
+                            if entry.get("score") is not None
+                            else entry.get("confidence_score")
+                        )
 
                     if entity_id and entity_id.lower() == "nan":
                         continue

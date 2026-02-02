@@ -33,7 +33,7 @@ class LionLinker:
             "{ranking_key}": [
                 {{
                     "id": "<CANDIDATE_ID>",
-                    "confidence_score": <float|null>
+                    "score": <float|null>
                 }}
             ],
             "explanation": "<short reasoning of the final decision>"
@@ -42,11 +42,11 @@ class LionLinker:
         Rules:
         1. Always return the JSON object with both fields "{ranking_key}" and "explanation".
         2. Return exactly {ranking_size} candidates (or all candidates if fewer are provided).
-        3. Each candidate must have the keys "id" and "confidence_score".
-        4. "confidence_score" must be in [0, 1] for normal cases.
+        3. Each candidate must have the keys "id" and "score".
+        4. "score" must be in [0, 1] for normal cases.
         5. If none of the provided candidates fits (NIL case):
            - Return the original candidates (up to the first {ranking_size}) in the same order
-             as presented in the prompt, each with "confidence_score": null.
+             as presented in the prompt, each with "score": null.
            - Use "explanation" to state why NIL was selected.
         6. Do not invent candidates. Score only the candidates that were provided in the prompt.
         7. The final output must be valid JSON (no Markdown, no trailing commas).
@@ -410,9 +410,14 @@ class LionLinker:
             if not candidate_id:
                 raise ValueError("Candidate ranking entries must include a non-empty string 'id'.")
 
-            if "confidence_score" not in entry:
-                raise ValueError("Candidate ranking entries must include 'confidence_score'.")
-            score_value = entry.get("confidence_score")
+            score_key = None
+            if "score" in entry:
+                score_key = "score"
+            elif "confidence_score" in entry:
+                score_key = "confidence_score"
+            if score_key is None:
+                raise ValueError("Candidate ranking entries must include 'score'.")
+            score_value = entry.get(score_key)
             if candidate_id.upper() == "NIL":
                 nil_entry_seen = True
                 continue
@@ -423,32 +428,22 @@ class LionLinker:
             else:
                 if not isinstance(score_value, (int, float)):
                     raise ValueError(
-                        "confidence_score must be numeric. "
+                        "score must be numeric. "
                         f"Received type {type(score_value)} for id {candidate_id}."
                     )
                 score = float(score_value)
                 if not 0 <= score <= 1:
                     raise ValueError(
-                        "confidence_score must be within [0, 1]. "
+                        "score must be within [0, 1]. "
                         f"Received {score} for id {candidate_id}."
                     )
                 numeric_scores += 1
-
-            canonical_label = None
-            if score is not None:
-                if score >= 0.70:
-                    canonical_label = "HIGH"
-                elif score >= 0.40:
-                    canonical_label = "MEDIUM"
-                else:
-                    canonical_label = "LOW"
 
             normalized_with_order.append(
                 {
                     "_order": order_idx,
                     "id": candidate_id,
-                    "confidence_label": canonical_label,
-                    "confidence_score": score,
+                    "score": score,
                 }
             )
 
@@ -460,22 +455,19 @@ class LionLinker:
             nil_mode = True
         elif null_scores:
             if numeric_scores:
-                raise ValueError(
-                    "confidence_score must be all null when using NIL mode."
-                )
+                raise ValueError("score must be all null when using NIL mode.")
             nil_mode = True
 
         if nil_mode:
             for item in normalized_with_order:
-                item["confidence_score"] = None
-                item["confidence_label"] = None
+                item["score"] = None
 
         trimmed: list[dict] = []
         seen_ids: set[str] = set()
 
         iterable = normalized_with_order if nil_mode else sorted(
             normalized_with_order,
-            key=lambda item: (-item["confidence_score"], item["_order"]),
+            key=lambda item: (-item["score"], item["_order"]),
         )
 
         for item in iterable:
@@ -486,8 +478,7 @@ class LionLinker:
             trimmed.append(
                 {
                     "id": item["id"],
-                    "confidence_label": item["confidence_label"],
-                    "confidence_score": item["confidence_score"],
+                    "score": item["score"],
                 }
             )
             if len(trimmed) >= requested_top_k:
@@ -686,21 +677,21 @@ class LionLinker:
         lines.append('  - "taskId": the TASK_ID string for that task.')
         lines.append(
             f'  - "{self.RANKING_KEY}": a list of exactly {self.ranking_size} objects '
-            '(or all candidates if fewer are provided) { "id", "confidence_score" }.'
+            '(or all candidates if fewer are provided) { "id", "score" }.'
         )
         lines.append(
             '  - "explanation": short reasoning text, without double quotes (use single quotes if needed).'
         )
         lines.append("")
         lines.append("Confidence scores:")
-        lines.append("  - confidence_score in [0, 1].")
+        lines.append("  - score in [0, 1].")
         lines.append("")
         lines.append("If none of the candidates fits:")
         lines.append(
             f"  - Return the original candidates (up to the first {self.ranking_size}) in the same order "
             "as presented in the prompt, each with"
         )
-        lines.append('    "confidence_score": null.')
+        lines.append('    "score": null.')
         lines.append("  - Use explanation to state why NIL was selected.")
         lines.append("")
         lines.append("Do not invent candidates; score only the candidates provided in the prompt.")
@@ -722,7 +713,7 @@ class LionLinker:
         if not candidate_id or candidate_id.upper() == "NIL":
             return "NIL"
 
-        score_value = top_entry.get("confidence_score")
+        score_value = top_entry.get("score")
         score = float(score_value) if isinstance(score_value, (int, float)) else 0.0
         if isinstance(score_value, (int, float)):
             if score >= 0.70:
@@ -775,15 +766,13 @@ class LionLinker:
                 effective_entries.append(
                     {
                         "id": candidate_id_str,
-                        "confidence_label": None,
-                        "confidence_score": None,
+                        "score": None,
                     }
                 )
 
         if predicted_identifier.upper() == "NIL":
             for entry in effective_entries:
-                entry["confidence_score"] = None
-                entry["confidence_label"] = None
+                entry["score"] = None
 
         seen_existing: set[str] = {
             str(entry.get("id", "")).strip().upper()
@@ -801,8 +790,7 @@ class LionLinker:
                 effective_entries.append(
                     {
                         "id": candidate_id,
-                        "confidence_label": None,
-                        "confidence_score": None,
+                        "score": None,
                     }
                 )
                 seen_existing.add(candidate_id_upper)
@@ -815,23 +803,11 @@ class LionLinker:
             if not entry_id:
                 continue
 
-            score_value = entry.get("confidence_score")
+            score_value = entry.get("score")
             if isinstance(score_value, (int, float)):
                 score = float(score_value)
             else:
                 score = None
-            label = None
-            if score is not None:
-                if score >= 0.70:
-                    label = "HIGH"
-                elif score >= 0.40:
-                    label = "MEDIUM"
-                else:
-                    label = "LOW"
-            else:
-                label_value = entry.get("confidence_label")
-                if isinstance(label_value, str) and label_value.strip():
-                    label = label_value.strip().upper()
 
             base_info = candidate_lookup.get(entry_id) if entry_id.upper() != "NIL" else {}
             if not base_info and entry_id.upper() != "NIL":
@@ -867,8 +843,7 @@ class LionLinker:
 
             enriched_entry = {
                 "id": entry_id,
-                "confidence_label": label,
-                "confidence_score": score,
+                "score": score,
                 "name": name_value,
                 "types": types,
                 "description": description_value,
