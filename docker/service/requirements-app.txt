@@ -166,6 +166,8 @@ pydantic-settings==2.11.0
     # via lion-linker
 pymongo==4.15.1
     # via motor
+python-multipart==0.0.9
+    # via fastapi
 python-dateutil==2.9.0.post0
     # via pandas
 python-dotenv==1.0.1

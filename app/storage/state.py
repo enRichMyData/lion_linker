@@ -84,6 +84,7 @@ class StateStore:
         payload: JobCreateRequestApi,
         *,
         table: JobTable | None = None,
+        status: JobStatus = JobStatus.queued,
     ) -> JobRecord:
         now = datetime.now(tz=timezone.utc)
         job_id = uuid.uuid4().hex
@@ -93,7 +94,7 @@ class StateStore:
         row_range = payload.row_range.model_dump() if payload.row_range else None
         record = JobRecord(
             job_id=job_id,
-            status=JobStatus.queued,
+            status=status,
             task="CEA",
             table=table,
             table_id=payload.table_id,

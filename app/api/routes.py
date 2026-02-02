@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Security, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, Security, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 
 from app.core import api_limits
@@ -17,11 +17,10 @@ from app.core.config import settings
 from app.dependencies import get_llm_api_key, get_store, get_task_queue, require_api_key
 from app.models.api import (
     ArtifactsResponse,
-    CandidateEntry,
-    CandidateResponse,
     CapabilitiesData,
     CapabilitiesResponse,
     DownloadResponse,
+    InputMode,
     JobCreateRequest,
     JobCreateResponse,
     JobProgress,
@@ -29,6 +28,7 @@ from app.models.api import (
     ResultsPageResponse,
     UploadCreateRequest,
     UploadCreateResponse,
+    UploadFinalizeRequest,
 )
 from app.models.queue import JobStatus, JobTable, PredictionRecord, TableRow
 from app.services.task_queue import TaskQueue
@@ -147,7 +147,7 @@ async def health() -> Dict[str, Any]:
 @router.get("/capabilities", response_model=CapabilitiesResponse)
 async def capabilities() -> CapabilitiesResponse:
     data = CapabilitiesData(
-        input_modes=["inline", "uri", "upload_id"],
+        input_modes=["inline", "uri", "upload_id", "multipart"],
         supported_formats=["text/csv", "application/json"],
         max_inline_bytes=api_limits.MAX_INLINE_BYTES,
         max_rows_inline=api_limits.MAX_ROWS_INLINE,
@@ -176,6 +176,7 @@ async def create_job(
         raise HTTPException(status_code=422, detail="link_columns exceeds max_link_columns")
 
     job_table = None
+    multipart_mode = payload.input.mode.value == "multipart"
     if payload.input.mode.value == "inline":
         if payload.input.format.value != "application/json":
             raise HTTPException(status_code=422, detail="inline input must be application/json")
@@ -197,10 +198,39 @@ async def create_job(
     if cleaned_config is not None or payload.config is not None:
         payload_for_store.config = cleaned_config
 
-    job = await store.create_job_v1(payload_for_store, table=job_table)
+    if multipart_mode:
+        payload_for_store.input.mode = InputMode.upload_id
+        payload_for_store.input.upload_id = None
+    job = await store.create_job_v1(
+        payload_for_store,
+        table=job_table,
+        status=JobStatus.uploading if multipart_mode else JobStatus.queued,
+    )
+    if multipart_mode:
+        upload_dir = settings.workspace_path / "uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        upload_path = str(upload_dir / f"{job.job_id}.csv")
+        parts_dir = str(upload_dir / f"{job.job_id}_parts")
+        await store.create_upload(
+            job.job_id,
+            {
+                "content_type": payload.input.format.value,
+                "content_length": None,
+                "created_at": datetime.now(tz=timezone.utc),
+                "expires_at": datetime.now(tz=timezone.utc) + timedelta(hours=6),
+                "path": upload_path,
+                "parts_dir": parts_dir,
+                "status": "pending",
+            },
+        )
+        await store.update_job(
+            job.job_id,
+            input={"mode": "upload_id", "format": "text/csv", "upload_id": job.job_id},
+        )
     if model_api_key:
         await store.save_job_secret(job.job_id, model_api_key)
-    await queue.enqueue(job.job_id)
+    if not multipart_mode:
+        await queue.enqueue(job.job_id)
 
     return JobCreateResponse(
         job_id=job.job_id,
@@ -208,6 +238,120 @@ async def create_job(
         status=job.status.value,
         created_at=job.created_at,
         limits={"top_k": payload.top_k},
+    )
+
+
+@router.post("/jobs/{job_id}/parts")
+async def upload_job_part(
+    job_id: str,
+    part_number: int = Form(..., ge=1),
+    data: UploadFile = File(...),
+    store: StateStore = Depends(get_store),
+) -> Response:
+    try:
+        await store.get_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+
+    upload_doc = await store.get_upload(job_id)
+    if not upload_doc:
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    upload_dir = settings.workspace_path / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    parts_dir = Path(upload_doc.get("parts_dir") or (upload_dir / f"{job_id}_parts"))
+    if not parts_dir.is_absolute():
+        parts_dir = upload_dir / parts_dir
+    parts_dir.mkdir(parents=True, exist_ok=True)
+
+    part_path = parts_dir / f"{part_number:06d}.part"
+    with open(part_path, "wb") as handle:
+        while True:
+            chunk = await data.read(1024 * 1024)
+            if not chunk:
+                break
+            handle.write(chunk)
+
+    await store.update_upload(job_id, status="uploading", parts_dir=str(parts_dir))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/jobs/{job_id}/finalize", response_model=JobStatusResponse)
+async def finalize_job(
+    job_id: str,
+    payload: Optional[UploadFinalizeRequest] = None,
+    store: StateStore = Depends(get_store),
+    queue: TaskQueue = Depends(get_task_queue),
+) -> JobStatusResponse:
+    try:
+        job = await store.get_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+
+    upload_doc = await store.get_upload(job_id)
+    if not upload_doc:
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    upload_dir = settings.workspace_path / "uploads"
+    parts_dir = Path(upload_doc.get("parts_dir") or (upload_dir / f"{job_id}_parts"))
+    if not parts_dir.is_absolute():
+        parts_dir = upload_dir / parts_dir
+    if not parts_dir.exists():
+        raise HTTPException(status_code=404, detail="Upload parts not found")
+
+    part_files = []
+    for path in parts_dir.iterdir():
+        if path.is_file() and path.suffix == ".part":
+            try:
+                part_number = int(path.stem)
+            except ValueError:
+                continue
+            part_files.append((part_number, path))
+    part_files.sort(key=lambda item: item[0])
+
+    total_parts = payload.total_parts if payload is not None else None
+    if total_parts is not None:
+        expected = int(total_parts)
+        have = {num for num, _ in part_files}
+        missing = [num for num in range(1, expected + 1) if num not in have]
+        if missing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Missing parts: {', '.join(str(num) for num in missing)}",
+            )
+
+    target_path = Path(upload_doc.get("path") or (upload_dir / f"{job_id}.csv"))
+    if not target_path.is_absolute():
+        target_path = upload_dir / target_path
+    with open(target_path, "wb") as out_handle:
+        for _, part_path in part_files:
+            with open(part_path, "rb") as in_handle:
+                while True:
+                    chunk = in_handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    out_handle.write(chunk)
+
+    await store.update_upload(job_id, status="ready", path=str(target_path))
+    await store.update_job(job_id, status=JobStatus.queued)
+    await queue.enqueue(job_id)
+
+    job = await store.get_job(job_id)
+    progress = JobProgress(
+        rows_total=job.rows_total,
+        rows_processed=job.rows_processed,
+        cells_total=job.cells_total,
+        cells_processed=job.cells_processed,
+    )
+    return JobStatusResponse(
+        job_id=job.job_id,
+        table_id=job.table_id,
+        status=job.status.value,
+        progress=progress,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        error=job.error,
     )
 
 
@@ -296,8 +440,9 @@ async def job_results(
                     "name": name_value,
                     "types": entry.get("types"),
                     "description": description_value,
-                    "confidence_label": entry.get("confidence_label"),
-                    "confidence_score": entry.get("confidence_score"),
+                    "score": entry.get("confidence_score")
+                    if entry.get("confidence_score") is not None
+                    else entry.get("score"),
                     "match": entry.get("match"),
                 }
             )
@@ -321,57 +466,6 @@ async def job_results(
     )
 
 
-@router.get(
-    "/jobs/{job_id}/cells/{row}/{col}/candidates",
-    response_model=CandidateResponse,
-)
-async def job_cell_candidates(
-    job_id: str,
-    row: int,
-    col: int,
-    store: StateStore = Depends(get_store),
-) -> CandidateResponse:
-    prediction = await store.get_prediction_cell(job_id, row, col)
-    if not prediction:
-        raise HTTPException(status_code=404, detail="Cell not found")
-
-    raw = prediction.raw or {}
-    candidates_raw = _parse_candidate_ranking(raw.get("candidate_ranking"))
-    candidates: List[CandidateEntry] = []
-    for idx, entry in enumerate(candidates_raw, start=1):
-        entry_id = str(entry.get("id", ""))
-        name_value = entry.get("name") or entry.get("label")
-        name_value = str(name_value) if name_value not in (None, "") else None
-        description_value = entry.get("description")
-        description_value = (
-            str(description_value) if description_value not in (None, "") else None
-        )
-        candidates.append(
-            CandidateEntry(
-                rank=idx,
-                id=entry_id or None,
-                confidence_label=entry.get("confidence_label"),
-                confidence_score=entry.get("confidence_score"),
-                name=name_value,
-                types=entry.get("types"),
-                description=description_value,
-                entity_id=entry_id,
-                label=name_value,
-                score=entry.get("confidence_score"),
-                features=entry.get("features"),
-            )
-        )
-
-    return CandidateResponse(
-        job_id=job_id,
-        row=row,
-        col=col,
-        cell_id=f"{row}:{col}",
-        mention=prediction.mention,
-        candidates=candidates,
-    )
-
-
 @router.post("/jobs/{job_id}:cancel", response_model=JobStatusResponse)
 async def cancel_job(job_id: str, store: StateStore = Depends(get_store)) -> JobStatusResponse:
     try:
@@ -379,10 +473,10 @@ async def cancel_job(job_id: str, store: StateStore = Depends(get_store)) -> Job
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Job not found") from exc
 
-    if job.status != JobStatus.queued:
+    if job.status not in {JobStatus.queued, JobStatus.uploading}:
         raise HTTPException(
             status_code=409,
-            detail=f"Job is {job.status.value}; only queued jobs can be cancelled",
+            detail=f"Job is {job.status.value}; only queued/uploading jobs can be cancelled",
         )
 
     cancelled = await store.cancel_job(job_id)

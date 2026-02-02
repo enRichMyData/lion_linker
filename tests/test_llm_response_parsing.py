@@ -16,11 +16,11 @@ class LLMResponseParsingTests(unittest.TestCase):
         response = json.dumps(
             {
                 "candidate_ranking": [
-                    {"id": "Q42", "confidence_score": 0.92},
-                    {"id": "Q123", "confidence_score": 0.63},
-                    {"id": "Q999", "confidence_score": 0.31},
-                    {"id": "Q777", "confidence_score": 0.24},
-                    {"id": "Q888", "confidence_score": 0.18},
+                    {"id": "Q42", "score": 0.92},
+                    {"id": "Q123", "score": 0.63},
+                    {"id": "Q999", "score": 0.31},
+                    {"id": "Q777", "score": 0.24},
+                    {"id": "Q888", "score": 0.18},
                 ],
                 "nil_score": 0.12,
                 "explanation": "Top candidates closely match the mention context.",
@@ -33,16 +33,16 @@ class LLMResponseParsingTests(unittest.TestCase):
         self.assertAlmostEqual(0.12, nil_score, places=2)
         self.assertTrue(explanation)
         self.assertEqual(
-            {"id": "Q42", "confidence_label": "HIGH", "confidence_score": 0.92},
+            {"id": "Q42", "score": 0.92},
             ranking[0],
         )
 
-    def test_parse_llm_json_sorts_by_confidence_score(self):
+    def test_parse_llm_json_sorts_by_score(self):
         response = json.dumps(
             {
                 "candidate_ranking": [
-                    {"id": "Q2", "confidence_score": 0.4},
-                    {"id": "Q1", "confidence_score": 0.9},
+                    {"id": "Q2", "score": 0.4},
+                    {"id": "Q1", "score": 0.9},
                 ],
                 "explanation": "Q1 scored higher confidence than Q2.",
             }
@@ -58,7 +58,7 @@ class LLMResponseParsingTests(unittest.TestCase):
         response = json.dumps(
             {
                 "candidate_ranking": [
-                    {"id": "NIL", "confidence_score": 0.8}
+                    {"id": "NIL", "score": 0.8}
                 ],
                 "explanation": "No provided candidate matched the context.",
             }
@@ -71,7 +71,7 @@ class LLMResponseParsingTests(unittest.TestCase):
         self.assertTrue(explanation)
         self.assertEqual("No provided candidate matched the context.", explanation)
 
-    def test_parse_llm_json_requires_confidence_score(self):
+    def test_parse_llm_json_requires_score(self):
         response = json.dumps(
             {
                 "candidate_ranking": [
@@ -100,7 +100,7 @@ class LLMResponseParsingTests(unittest.TestCase):
         response = json.dumps(
             {
                 "candidate_ranking": [
-                    {"id": "Q1", "confidence_score": 0.8}
+                    {"id": "Q1", "score": 0.8}
                 ]
             }
         )
@@ -112,8 +112,8 @@ class LLMResponseParsingTests(unittest.TestCase):
         response = json.dumps(
             {
                 "candidate_ranking": [
-                    {"id": "NIL", "confidence_score": 0.9},
-                    {"id": "Q1", "confidence_score": None},
+                    {"id": "NIL", "score": 0.9},
+                    {"id": "Q1", "score": None},
                 ],
                 "nil_score": 0.88,
                 "explanation": "Mention clearly references no known entity.",
@@ -123,25 +123,25 @@ class LLMResponseParsingTests(unittest.TestCase):
         ranking, nil_score, explanation = self.lion._parse_llm_json(response)
 
         self.assertEqual("Q1", ranking[0]["id"])
-        self.assertIsNone(ranking[0]["confidence_score"])
+        self.assertIsNone(ranking[0]["score"])
         self.assertAlmostEqual(0.88, nil_score, places=2)
         self.assertEqual("Mention clearly references no known entity.", explanation)
 
     def test_determine_predicted_identifier_requires_high_confidence(self):
         entries = [
-            {"id": "Q1", "confidence_score": 0.7}
+            {"id": "Q1", "score": 0.7}
         ]
         self.assertEqual("Q1", self.lion._determine_predicted_identifier(entries, None))
 
         entries_low = [
-            {"id": "Q1", "confidence_score": 0.3}
+            {"id": "Q1", "score": 0.3}
         ]
         self.assertEqual(
             "NIL", self.lion._determine_predicted_identifier(entries_low, None)
         )
 
         entries_nil = [
-            {"id": "NIL", "confidence_score": 0.9}
+            {"id": "NIL", "score": 0.9}
         ]
         self.assertEqual(
             "NIL", self.lion._determine_predicted_identifier(entries_nil, None)
@@ -149,8 +149,8 @@ class LLMResponseParsingTests(unittest.TestCase):
 
     def test_enrich_candidate_ranking_adds_metadata(self):
         entries = [
-            {"id": "Q1", "confidence_score": 0.55},
-            {"id": "Q2", "confidence_score": 0.45},
+            {"id": "Q1", "score": 0.55},
+            {"id": "Q2", "score": 0.45},
         ]
         candidates = [
             {
@@ -178,7 +178,7 @@ class LLMResponseParsingTests(unittest.TestCase):
 
     def test_enrich_candidate_ranking_handles_nil_top(self):
         entries = [
-            {"id": "Q1", "confidence_score": None},
+            {"id": "Q1", "score": None},
         ]
 
         predicted = self.lion._determine_predicted_identifier(entries, None)

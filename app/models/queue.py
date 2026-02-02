@@ -8,6 +8,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 
 class JobStatus(str, Enum):
+    uploading = "uploading"
     queued = "queued"
     running = "running"
     done = "done"
